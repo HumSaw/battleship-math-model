@@ -1,8 +1,20 @@
 // Вероятностный движок для игры «Морской бой».
-// Метод: Монте-Карло по полным допустимым расстановкам флота противника,
-// согласованным со всеми известными фактами (промахи, попадания, потопленные корабли).
-// Для каждой клетки считается вероятность присутствия корабля; рекомендуется
-// выстрел с максимальным математическим ожиданием попадания.
+//
+// Три уровня расчёта (по убыванию точности):
+//  1. Точный перебор всех допустимых расстановок (эндшпиль, пространство мало) — точные вероятности.
+//  2. Монте-Карло с importance-весами (SIS): каждая сгенерированная расстановка учитывается
+//     с весом, равным произведению числа доступных вариантов на каждом шаге построения, —
+//     это устраняет смещение последовательного сэмплирования.
+//  3. Эвристика плотности размещений — запасной режим, если валидные расстановки не найдены.
+//
+// Ключевые инварианты:
+//  - У живого (не потопленного) корабля есть хотя бы одна необстрелянная клетка:
+//    корабль, все клетки которого «ранены», был бы объявлен убитым. (Исправление К-1)
+//  - Потопленные корабли передаются явным списком клеток (sunkShips), а не выводятся
+//    заливкой из доски: в международных правилах потопленные корабли могут соприкасаться
+//    и заливка бы их слипала. (Исправление К-2)
+//  - «Точно пусто» — доказуемое утверждение: ни одно допустимое размещение ни одного
+//    оставшегося корабля не покрывает клетку. (Исправление В-2)
 
 export const SIZE = 10
 export const CELLS = SIZE * SIZE
@@ -15,7 +27,7 @@ export const SUNK = 3
 export type RulesMode = 'russian' | 'international'
 
 export const FLEETS: Record<RulesMode, number[]> = {
-  // Русские правила: 1×4, 2×3, 3×2, 4×1; корабли не могут касаться даже углами
+  // Русские правила: 1×4, 2×3, 3×2, 4×1; корабли не касаются даже углами
   russian: [4, 3, 3, 2, 2, 2, 1, 1, 1, 1],
   // Международные (Hasbro): 5, 4, 3, 3, 2; касание разрешено
   international: [5, 4, 3, 3, 2],
@@ -70,6 +82,22 @@ function diagNeighbors(i: number): number[] {
   return out
 }
 
+/** Клетки образуют прямую непрерывную линию (форма настоящего корабля) */
+export function isStraightLine(cells: number[]): boolean {
+  if (cells.length === 0) return false
+  if (cells.length === 1) return true
+  const rows = cells.map(rowOf)
+  const cols = cells.map(colOf)
+  const sameRow = rows.every((r) => r === rows[0])
+  const sameCol = cols.every((c) => c === cols[0])
+  if (!sameRow && !sameCol) return false
+  const axis = (sameRow ? cols : rows).slice().sort((a, b) => a - b)
+  for (let k = 1; k < axis.length; k++) {
+    if (axis[k] !== axis[k - 1] + 1) return false
+  }
+  return true
+}
+
 // ---------- Кэш всех возможных положений корабля длины L ----------
 
 const placementsCache = new Map<number, number[][]>()
@@ -98,20 +126,6 @@ function placementsFor(len: number): number[][] {
   return list
 }
 
-const coveringCache = new Map<number, number[][][]>()
-
-// Для длины L: по каждой клетке — список положений, покрывающих её
-function coveringFor(len: number): number[][][] {
-  const cached = coveringCache.get(len)
-  if (cached) return cached
-  const map: number[][][] = Array.from({ length: CELLS }, () => [])
-  for (const cells of placementsFor(len)) {
-    for (const c of cells) map[c].push(cells)
-  }
-  coveringCache.set(len, map)
-  return map
-}
-
 // ---------- Детерминированный ГПСЧ (стабильные рекомендации между рендерами) ----------
 
 function mulberry32(seed: number) {
@@ -125,7 +139,7 @@ function mulberry32(seed: number) {
   }
 }
 
-function floodClusters(board: number[], state: number): number[][] {
+export function floodClusters(board: ArrayLike<number>, state: number): number[][] {
   const seen = new Uint8Array(CELLS)
   const clusters: number[][] = []
   for (let i = 0; i < CELLS; i++) {
@@ -148,7 +162,30 @@ function floodClusters(board: number[], state: number): number[][] {
   return clusters
 }
 
-// ---------- Результат анализа ----------
+// ---------- Параметры движка ----------
+
+export interface EngineOptions {
+  /** Целевое число валидных сэмплов Монте-Карло */
+  targetSamples?: number
+  /** Максимум попыток генерации (защита от тесных позиций) */
+  maxAttempts?: number
+  /** Бюджет времени на анализ, мс */
+  timeBudgetMs?: number
+  /** Верхняя оценка числа узлов, при которой включается точный перебор */
+  enumLimit?: number
+}
+
+const DEFAULT_OPTIONS: Required<EngineOptions> = {
+  targetSamples: 5000,
+  maxAttempts: 80000,
+  timeBudgetMs: 240,
+  enumLimit: 150000,
+}
+
+/** Как часто проверять дедлайн (каждые N попыток) — Date.now() в цикле дорог */
+const DEADLINE_CHECK_INTERVAL = 64
+
+export type AnalysisMethod = 'enumerated' | 'montecarlo' | 'heuristic'
 
 export interface Analysis {
   /** Вероятность корабля в клетке (0..1). Для эвристики — относительный вес 0..1. */
@@ -162,20 +199,64 @@ export interface Analysis {
   mode: 'hunt' | 'target' | 'won' | 'inconsistent'
   remaining: number[]
   destroyed: number[]
-  /** Клетки, где корабля точно нет (доказано перебором) */
+  /** Клетки, где корабля точно нет (доказано) */
   impossible: boolean[]
-  /** true — вероятности Монте-Карло; false — эвристический запасной режим */
+  /** true — вероятности расчётные (перебор или Монте-Карло); false — эвристика */
   exact: boolean
+  /** Каким методом получены вероятности */
+  method: AnalysisMethod
+  /** Эффективный размер выборки (для Монте-Карло с весами) */
+  effectiveSamples: number
 }
 
-export function analyze(board: number[], rules: RulesMode): Analysis {
+/**
+ * Главная функция анализа.
+ * @param board — состояние поля (UNKNOWN/MISS/HIT/SUNK)
+ * @param rules — набор правил
+ * @param sunkShips — потопленные корабли явными списками клеток (обязательно для
+ *   международных правил: заливка слипает соприкасающиеся корабли). Если не передано,
+ *   корабли выводятся заливкой (безопасно только для русских правил).
+ * @param options — параметры точности/времени
+ */
+export function analyze(
+  board: number[],
+  rules: RulesMode,
+  sunkShips?: number[][] | null,
+  options?: EngineOptions,
+): Analysis {
+  const opts = { ...DEFAULT_OPTIONS, ...options }
   const nt = rules === 'russian' // no-touch правило
 
-  // 1. Потопленные корабли -> оставшийся флот
-  const sunkClusters = floodClusters(board, SUNK)
-  const destroyed = sunkClusters.map((c) => c.length).sort((a, b) => b - a)
-  const fleet = [...FLEETS[rules]]
   let inconsistent = false
+
+  // 1. Потопленные корабли: явные (из UI) или заливкой (запасной путь)
+  const ships: number[][] =
+    sunkShips && sunkShips.length > 0 ? sunkShips : floodClusters(board, SUNK)
+
+  // Валидация формы и согласованности с доской
+  const sunkOwner = new Int16Array(CELLS).fill(-1)
+  for (let s = 0; s < ships.length; s++) {
+    if (!isStraightLine(ships[s])) inconsistent = true
+    for (const c of ships[s]) {
+      if (board[c] !== SUNK || sunkOwner[c] !== -1) inconsistent = true
+      sunkOwner[c] = s
+    }
+  }
+  for (let i = 0; i < CELLS; i++) {
+    if (board[i] === SUNK && sunkOwner[i] === -1) inconsistent = true
+  }
+  // Русские правила: потопленные корабли не могут касаться друг друга
+  if (nt) {
+    for (let i = 0; i < CELLS; i++) {
+      if (sunkOwner[i] === -1) continue
+      for (const n of neighbors8(i)) {
+        if (sunkOwner[n] !== -1 && sunkOwner[n] !== sunkOwner[i]) inconsistent = true
+      }
+    }
+  }
+
+  const destroyed = ships.map((s) => s.length).sort((a, b) => b - a)
+  const fleet = [...FLEETS[rules]]
   for (const d of destroyed) {
     const ix = fleet.indexOf(d)
     if (ix === -1) inconsistent = true
@@ -233,110 +314,174 @@ export function analyze(board: number[], rules: RulesMode): Analysis {
     destroyed,
     impossible: new Array(CELLS).fill(false),
     exact: true,
+    method: 'enumerated',
+    effectiveSamples: 0,
   })
 
-  if (remaining.length === 0 && hitCells.length === 0) {
-    return emptyResult(inconsistent ? 'inconsistent' : 'won')
+  if (inconsistent) return emptyResult('inconsistent')
+  if (remaining.length === 0 && hitCells.length === 0) return emptyResult('won')
+  if (remaining.length === 0 && hitCells.length > 0) return emptyResult('inconsistent')
+
+  // 4. Префильтрация размещений: совместимы с baseBlocked и имеют хотя бы одну
+  //    необстрелянную клетку (К-1: живой корабль не может состоять из одних ранений).
+  const uniqueLens = [...new Set(remaining)]
+  const validByLen = new Map<number, number[][]>()
+  for (const L of uniqueLens) {
+    const list: number[][] = []
+    for (const cells of placementsFor(L)) {
+      let ok = true
+      let hasUnknown = false
+      for (const c of cells) {
+        if (baseBlocked[c]) {
+          ok = false
+          break
+        }
+        if (board[c] === UNKNOWN) hasUnknown = true
+      }
+      if (ok && hasUnknown) list.push(cells)
+    }
+    validByLen.set(L, list)
   }
 
-  // 4. Сид ГПСЧ из позиции — рекомендации стабильны для одной и той же позиции
+  // Покрытия по клеткам (для фазы добивания)
+  const coveringByLen = new Map<number, number[][][]>()
+  for (const L of uniqueLens) {
+    const map: number[][][] = Array.from({ length: CELLS }, () => [])
+    for (const cells of validByLen.get(L) as number[][]) {
+      for (const c of cells) map[c].push(cells)
+    }
+    coveringByLen.set(L, map)
+  }
+
+  // В-2: «точно пусто» — доказуемо: клетку не покрывает ни одно валидное размещение
+  const staticPossible = new Uint8Array(CELLS)
+  for (const L of uniqueLens) {
+    for (const cells of validByLen.get(L) as number[][]) {
+      for (const c of cells) staticPossible[c] = 1
+    }
+  }
+
+  // 5. Сид ГПСЧ из позиции — рекомендации стабильны для одной и той же позиции
   let seed = rules === 'russian' ? 0x9e3779b9 : 0x85ebca6b
   for (let i = 0; i < CELLS; i++) seed = (Math.imul(seed, 31) + board[i] + 1) | 0
   const rng = mulberry32(seed)
 
-  const placeable = (cells: number[], blocked: Uint8Array): boolean => {
-    for (const c of cells) if (blocked[c]) return false
-    return true
-  }
+  // ---------- Точный перебор (эндшпиль) ----------
 
-  const place = (cells: number[], occupied: Uint8Array, blocked: Uint8Array) => {
-    for (const c of cells) {
-      occupied[c] = 1
-      blocked[c] = 1
-    }
-    if (nt) {
-      for (const c of cells) for (const n of neighbors8(c)) blocked[n] = 1
-    }
-  }
+  const enumResult = tryEnumerate(
+    remaining,
+    validByLen,
+    baseBlocked,
+    board,
+    hitCells,
+    nt,
+    opts.enumLimit,
+  )
 
-  // 5. Одна попытка построить полную допустимую расстановку флота
-  const trySample = (): Uint8Array | null => {
-    const occupied = new Uint8Array(CELLS)
-    const blocked = baseBlocked.slice()
-    const pool = remaining.slice()
-    let uncovered = hitCells.slice()
-    let guard = 0
-
-    // Фаза 1: раненые корабли — размещаем корабли, покрывающие все попадания
-    while (uncovered.length) {
-      if (guard++ > 24) return null
-      const h = uncovered[(rng() * uncovered.length) | 0]
-      const cl = clusterOf[h] as number[]
-      const mustCoverAll = nt && collinearOf[h] === 1
-
-      const options: { li: number; cells: number[] }[] = []
-      const seenLen = new Set<number>()
-      for (let li = 0; li < pool.length; li++) {
-        const L = pool[li]
-        if (seenLen.has(L)) continue
-        seenLen.add(L)
-        if (mustCoverAll && L < cl.length) continue
-        for (const cells of coveringFor(L)[h]) {
-          if (mustCoverAll) {
-            let coversAll = true
-            for (const c of cl) {
-              if (!cells.includes(c)) {
-                coversAll = false
-                break
-              }
-            }
-            if (!coversAll) continue
-          }
-          if (placeable(cells, blocked)) options.push({ li, cells })
-        }
-      }
-      if (!options.length) return null
-      const pick = options[(rng() * options.length) | 0]
-      pool.splice(pick.li, 1)
-      place(pick.cells, occupied, blocked)
-      uncovered = uncovered.filter((c) => !occupied[c])
-    }
-
-    // Фаза 2: оставшиеся корабли — случайные допустимые позиции
-    for (const L of pool) {
-      const cand = placementsFor(L)
-      let done = false
-      for (let t = 0; t < 30 && !done; t++) {
-        const cells = cand[(rng() * cand.length) | 0]
-        if (placeable(cells, blocked)) {
-          place(cells, occupied, blocked)
-          done = true
-        }
-      }
-      if (!done) {
-        const opts = cand.filter((cells) => placeable(cells, blocked))
-        if (!opts.length) return null
-        place(opts[(rng() * opts.length) | 0], occupied, blocked)
-      }
-    }
-    return occupied
-  }
-
-  // 6. Основной цикл Монте-Карло
   const counts = new Float64Array(CELLS)
+  let totalWeight = 0
+  let sumW2 = 0
   let valid = 0
   let attempts = 0
-  const TARGET_SAMPLES = 3500
-  const MAX_ATTEMPTS = 60000
-  const deadline = Date.now() + 260
+  let method: AnalysisMethod = 'montecarlo'
 
-  while (valid < TARGET_SAMPLES && attempts < MAX_ATTEMPTS && Date.now() < deadline) {
-    attempts++
-    const occ = trySample()
-    if (occ) {
-      valid++
-      for (let i = 0; i < CELLS; i++) {
-        if (occ[i] && board[i] === UNKNOWN) counts[i]++
+  if (enumResult) {
+    method = 'enumerated'
+    counts.set(enumResult.counts)
+    totalWeight = enumResult.total
+    valid = enumResult.total
+    attempts = enumResult.nodes
+    sumW2 = enumResult.total
+  } else {
+    // ---------- Монте-Карло с importance-весами (SIS) ----------
+    const placeable = (cells: number[], blocked: Uint8Array): boolean => {
+      for (const c of cells) if (blocked[c]) return false
+      return true
+    }
+
+    const place = (cells: number[], occupied: Uint8Array, blocked: Uint8Array) => {
+      for (const c of cells) {
+        occupied[c] = 1
+        blocked[c] = 1
+      }
+      if (nt) {
+        for (const c of cells) for (const n of neighbors8(c)) blocked[n] = 1
+      }
+    }
+
+    // Одна попытка построить полную допустимую расстановку.
+    // Вес сэмпла = произведение числа доступных вариантов на каждом шаге —
+    // классическая схема Sequential Importance Sampling, устраняющая смещение
+    // последовательного размещения (В-1).
+    const trySample = (): { occ: Uint8Array; w: number } | null => {
+      const occupied = new Uint8Array(CELLS)
+      const blocked = baseBlocked.slice()
+      const pool = remaining.slice()
+      let uncovered = hitCells.slice()
+      let weight = 1
+
+      // Фаза 1: раненые корабли — размещаем корабли, покрывающие все попадания
+      while (uncovered.length) {
+        const h = uncovered[(rng() * uncovered.length) | 0]
+        const cl = clusterOf[h] as number[]
+        const mustCoverAll = nt && collinearOf[h] === 1
+
+        const options: { li: number; cells: number[] }[] = []
+        const seenLen = new Set<number>()
+        for (let li = 0; li < pool.length; li++) {
+          const L = pool[li]
+          if (seenLen.has(L)) continue
+          seenLen.add(L)
+          if (mustCoverAll && L < cl.length) continue
+          const covering = (coveringByLen.get(L) as number[][][])[h]
+          for (const cells of covering) {
+            if (mustCoverAll) {
+              let coversAll = true
+              for (const c of cl) {
+                if (!cells.includes(c)) {
+                  coversAll = false
+                  break
+                }
+              }
+              if (!coversAll) continue
+            }
+            if (placeable(cells, blocked)) options.push({ li, cells })
+          }
+        }
+        if (!options.length) return null
+        weight *= options.length
+        const pick = options[(rng() * options.length) | 0]
+        pool.splice(pick.li, 1)
+        place(pick.cells, occupied, blocked)
+        uncovered = uncovered.filter((c) => !occupied[c])
+      }
+
+      // Фаза 2: оставшиеся корабли — равномерный выбор из всех валидных позиций
+      for (const L of pool) {
+        const cand = validByLen.get(L) as number[][]
+        const opts2: number[][] = []
+        for (const cells of cand) {
+          if (placeable(cells, blocked)) opts2.push(cells)
+        }
+        if (!opts2.length) return null
+        weight *= opts2.length
+        place(opts2[(rng() * opts2.length) | 0], occupied, blocked)
+      }
+      return { occ: occupied, w: weight }
+    }
+
+    const deadline = Date.now() + opts.timeBudgetMs
+    while (valid < opts.targetSamples && attempts < opts.maxAttempts) {
+      if (attempts % DEADLINE_CHECK_INTERVAL === 0 && Date.now() >= deadline) break
+      attempts++
+      const sample = trySample()
+      if (sample) {
+        valid++
+        totalWeight += sample.w
+        sumW2 += sample.w * sample.w
+        for (let i = 0; i < CELLS; i++) {
+          if (sample.occ[i] && board[i] === UNKNOWN) counts[i] += sample.w
+        }
       }
     }
   }
@@ -344,28 +489,22 @@ export function analyze(board: number[], rules: RulesMode): Analysis {
   let exact = true
   const probs = new Array<number>(CELLS).fill(0)
 
-  if (valid > 0) {
+  if (totalWeight > 0) {
     for (let i = 0; i < CELLS; i++) {
-      if (board[i] === UNKNOWN) probs[i] = counts[i] / valid
+      if (board[i] === UNKNOWN) probs[i] = counts[i] / totalWeight
     }
   } else {
-    // 7. Запасной режим: классическая эвристика плотности размещений
+    // ---------- Эвристика плотности размещений (запасной режим) ----------
     exact = false
+    method = 'heuristic'
+    const HIT_BONUS = 25 // усиление размещений, проходящих через ранения
     const weights = new Float64Array(CELLS)
-    for (const L of remaining) {
-      for (const cells of placementsFor(L)) {
-        let bad = false
+    for (const L of uniqueLens) {
+      for (const cells of validByLen.get(L) as number[][]) {
         let hits = 0
-        for (const c of cells) {
-          if (baseBlocked[c]) {
-            bad = true
-            break
-          }
-          if (board[c] === HIT) hits++
-        }
-        if (bad) continue
+        for (const c of cells) if (board[c] === HIT) hits++
         if (hitCells.length > 0 && hits === 0) continue
-        const w = 1 + hits * 25
+        const w = 1 + hits * HIT_BONUS
         for (const c of cells) {
           if (board[c] === UNKNOWN) weights[c] += w
         }
@@ -380,7 +519,7 @@ export function analyze(board: number[], rules: RulesMode): Analysis {
     }
   }
 
-  // 8. Рекомендация: клетка с максимальной вероятностью
+  // Рекомендация: клетка с максимальной вероятностью
   let best: number | null = null
   let bestP = 0
   const ranked: { idx: number; p: number }[] = []
@@ -394,16 +533,20 @@ export function analyze(board: number[], rules: RulesMode): Analysis {
   }
   ranked.sort((a, b) => b.p - a.p)
 
+  // «Точно пусто»: статическое доказательство (всегда корректно) +
+  // нулевой счётчик при полном переборе (тоже доказательство)
   const impossible = new Array<boolean>(CELLS).fill(false)
-  if (exact && valid > 0) {
-    for (let i = 0; i < CELLS; i++) {
-      if (board[i] === UNKNOWN && counts[i] === 0) impossible[i] = true
-    }
+  for (let i = 0; i < CELLS; i++) {
+    if (board[i] !== UNKNOWN) continue
+    if (!staticPossible[i]) impossible[i] = true
+    else if (method === 'enumerated' && counts[i] === 0) impossible[i] = true
   }
 
+  const effectiveSamples =
+    method === 'montecarlo' && sumW2 > 0 ? (totalWeight * totalWeight) / sumW2 : valid
+
   let mode: Analysis['mode']
-  if (inconsistent) mode = 'inconsistent'
-  else if (best === null) mode = 'inconsistent'
+  if (best === null) mode = 'inconsistent'
   else if (hitCells.length > 0) mode = 'target'
   else mode = 'hunt'
 
@@ -418,5 +561,133 @@ export function analyze(board: number[], rules: RulesMode): Analysis {
     destroyed,
     impossible,
     exact,
+    method,
+    effectiveSamples: Math.round(effectiveSamples),
   }
+}
+
+// ---------- Точный перебор ----------
+
+interface EnumResult {
+  counts: Float64Array
+  total: number
+  nodes: number
+}
+
+/**
+ * Полный перебор всех допустимых конфигураций оставшегося флота.
+ * Запускается, только если верхняя оценка числа комбинаций не превышает limit.
+ * Возвращает точные счётчики: counts[i] = число конфигураций с кораблём в клетке i.
+ */
+function tryEnumerate(
+  remaining: number[],
+  validByLen: Map<number, number[][]>,
+  baseBlocked: Uint8Array,
+  board: number[],
+  hitCells: number[],
+  nt: boolean,
+  limit: number,
+): EnumResult | null {
+  const n = remaining.length
+  if (n === 0) return { counts: new Float64Array(CELLS), total: 1, nodes: 0 }
+
+  // Верхняя оценка: произведение числа кандидатов с поправкой на одинаковые длины
+  let estimate = 1
+  const groupSize = new Map<number, number>()
+  for (const L of remaining) groupSize.set(L, (groupSize.get(L) ?? 0) + 1)
+  for (const [L, g] of groupSize) {
+    const c = (validByLen.get(L) as number[][]).length
+    if (c === 0) return { counts: new Float64Array(CELLS), total: 0, nodes: 0 }
+    // C(c, g) ≤ c^g / g!
+    let f = 1
+    for (let k = 0; k < g; k++) f *= c
+    let fact = 1
+    for (let k = 2; k <= g; k++) fact *= k
+    estimate *= f / fact
+    if (estimate > limit) return null
+  }
+
+  const isHit = new Uint8Array(CELLS)
+  for (const h of hitCells) isHit[h] = 1
+
+  const blockCount = new Int16Array(CELLS)
+  const counts = new Float64Array(CELLS)
+  const chosen: number[][] = []
+  let total = 0
+  let nodes = 0
+  let uncoveredHits = hitCells.length
+  const suffixLen: number[] = new Array(n + 1).fill(0)
+  for (let k = n - 1; k >= 0; k--) suffixLen[k] = suffixLen[k + 1] + remaining[k]
+
+  const isBlocked = (c: number) => baseBlocked[c] === 1 || blockCount[c] > 0
+
+  const placeEnum = (cells: number[]) => {
+    let covered = 0
+    for (const c of cells) {
+      blockCount[c]++
+      if (isHit[c]) covered++
+    }
+    if (nt) {
+      for (const c of cells) for (const nb of neighbors8(c)) blockCount[nb]++
+    }
+    uncoveredHits -= covered
+    return covered
+  }
+
+  const unplaceEnum = (cells: number[], covered: number) => {
+    for (const c of cells) blockCount[c]--
+    if (nt) {
+      for (const c of cells) for (const nb of neighbors8(c)) blockCount[nb]--
+    }
+    uncoveredHits += covered
+  }
+
+  let aborted = false
+
+  const dfs = (k: number, prevIdxSameLen: number) => {
+    if (aborted) return
+    if (nodes++ > limit * 4) {
+      aborted = true
+      return
+    }
+    if (k === n) {
+      if (uncoveredHits === 0) {
+        total++
+        for (const cells of chosen) {
+          for (const c of cells) {
+            if (board[c] === UNKNOWN) counts[c]++
+          }
+        }
+      }
+      return
+    }
+    // Отсечение: оставшиеся корабли не смогут покрыть все ранения
+    if (uncoveredHits > suffixLen[k]) return
+
+    const L = remaining[k]
+    const cand = validByLen.get(L) as number[][]
+    // Дедупликация одинаковых длин: индексы кандидатов строго возрастают
+    const start = k > 0 && remaining[k - 1] === L ? prevIdxSameLen + 1 : 0
+    for (let ci = start; ci < cand.length; ci++) {
+      const cells = cand[ci]
+      let ok = true
+      for (const c of cells) {
+        if (isBlocked(c)) {
+          ok = false
+          break
+        }
+      }
+      if (!ok) continue
+      const covered = placeEnum(cells)
+      chosen.push(cells)
+      dfs(k + 1, ci)
+      chosen.pop()
+      unplaceEnum(cells, covered)
+      if (aborted) return
+    }
+  }
+
+  dfs(0, -1)
+  if (aborted) return null
+  return { counts, total, nodes }
 }
