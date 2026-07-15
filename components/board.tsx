@@ -20,7 +20,8 @@ interface BoardProps {
   showHeat: boolean
   showPercent: boolean
   exact: boolean
-  onCellAction: (i: number) => void
+  activeCell: number | null
+  onCellClick: (i: number, e: React.MouseEvent) => void
   onCellErase: (i: number) => void
 }
 
@@ -39,7 +40,8 @@ export function Board({
   showHeat,
   showPercent,
   exact,
-  onCellAction,
+  activeCell,
+  onCellClick,
   onCellErase,
 }: BoardProps) {
   let maxP = 0
@@ -71,7 +73,8 @@ export function Board({
           showHeat={showHeat}
           showPercent={showPercent}
           exact={exact}
-          onCellAction={onCellAction}
+          activeCell={activeCell}
+          onCellClick={onCellClick}
           onCellErase={onCellErase}
         />
       ))}
@@ -89,7 +92,8 @@ function RowCells({
   showHeat,
   showPercent,
   exact,
-  onCellAction,
+  activeCell,
+  onCellClick,
   onCellErase,
 }: {
   row: number
@@ -101,7 +105,8 @@ function RowCells({
   showHeat: boolean
   showPercent: boolean
   exact: boolean
-  onCellAction: (i: number) => void
+  activeCell: number | null
+  onCellClick: (i: number, e: React.MouseEvent) => void
   onCellErase: (i: number) => void
 }) {
   return (
@@ -124,7 +129,7 @@ function RowCells({
             aria-label={`${cellName(i)}: ${STATE_LABEL[state]}${
               state === UNKNOWN && exact ? `, вероятность ${Math.round(p * 100)}%` : ''
             }`}
-            onClick={() => onCellAction(i)}
+            onClick={(e) => onCellClick(i, e)}
             onContextMenu={(e) => {
               e.preventDefault()
               onCellErase(i)
@@ -134,6 +139,7 @@ function RowCells({
               state === UNKNOWN && 'hover:border-primary/70',
               state === SUNK && 'bg-destructive/25',
               isBest && 'z-10 ring-2 ring-primary',
+              activeCell === i && 'z-10 ring-2 ring-foreground/60',
             )}
             style={
               heat > 0
