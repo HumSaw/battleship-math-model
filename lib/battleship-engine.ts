@@ -33,13 +33,15 @@ export const FLEETS: Record<RulesMode, number[]> = {
   international: [5, 4, 3, 3, 2],
 }
 
-export const COL_LETTERS = ['А', 'Б', 'В', 'Г', 'Д', 'Е', 'Ж', 'З', 'И', 'К']
+/** Буквы строк (вертикальная ось) — классическая русская нотация */
+export const ROW_LETTERS = ['А', 'Б', 'В', 'Г', 'Д', 'Е', 'Ж', 'З', 'И', 'К']
 
 export const rowOf = (i: number) => Math.floor(i / SIZE)
 export const colOf = (i: number) => i % SIZE
 
+/** Имя клетки: буква строки + номер столбца, например «Д5» */
 export function cellName(i: number): string {
-  return COL_LETTERS[colOf(i)] + String(rowOf(i) + 1)
+  return ROW_LETTERS[rowOf(i)] + String(colOf(i) + 1)
 }
 
 export function neighbors8(i: number): number[] {
@@ -838,7 +840,7 @@ interface ExpectimaxResult {
  *   E(S,H) = min_c [ 1 + Σ_сигнал (|S_сиг|/|S|) · E(S_сиг, H') ].
  * Терминал: |S| = 1 — дальше стреляем только по известным клеткам корабля.
  *
- * Информация «убил» (длина, а в русских правилах и ореол) не требует отдельного
+ * Информация «убил» (длина, а в русских правилах и ��реол) не требует отдельного
  * моделирования: она эквивалентна отсечению несовместимых конфигураций из S.
  */
 function expectimaxBest(configs: number[][][], board: number[]): ExpectimaxResult | null {
