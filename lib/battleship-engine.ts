@@ -185,7 +185,28 @@ const DEFAULT_OPTIONS: Required<EngineOptions> = {
 /** Как часто проверять дедлайн (каждые N попыток) — Date.now() в цикле дорог */
 const DEADLINE_CHECK_INTERVAL = 64
 
+// ---------- Параметры стратегии (expectimax и lookahead) ----------
+
+/** Максимум конфигураций, при котором включается точный expectimax-эндшпиль */
+const EXPECTIMAX_MAX_CONFIGS = 400
+/** Предохранитель по узлам дерева expectimax */
+const EXPECTIMAX_NODE_CAP = 400000
+/** Tie-break: кандидаты в пределах EPS от максимума вероятности */
+const TIEBREAK_EPS = 0.035
+/** Tie-break: максимум кандидатов для двухходового lookahead */
+const TIEBREAK_TOP = 6
+/** Максимум сохраняемых сэмплов Монте-Карло для lookahead */
+const MC_STORE_LIMIT = 4000
+
 export type AnalysisMethod = 'enumerated' | 'montecarlo' | 'heuristic'
+
+/**
+ * Стратегия выбора хода:
+ *  - expectimax — точная минимизация матожидания оставшихся выстрелов (эндшпиль)
+ *  - lookahead — максимум вероятности + двухходовый разбор среди равных кандидатов
+ *  - maxprob   — максимум вероятности попадания
+ */
+export type Policy = 'expectimax' | 'lookahead' | 'maxprob'
 
 export interface Analysis {
   /** Вероятность корабля в клетке (0..1). Для эвристики — относительный вес 0..1. */
@@ -207,6 +228,10 @@ export interface Analysis {
   method: AnalysisMethod
   /** Эффективный размер выборки (для Монте-Карло с весами) */
   effectiveSamples: number
+  /** Стратегия, которой выбран рекомендованный ход */
+  policy: Policy
+  /** Матожидание выстрелов до победы при оптимальной игре (только expectimax) */
+  expectedShots: number | null
 }
 
 /**
@@ -316,6 +341,8 @@ export function analyze(
     exact: true,
     method: 'enumerated',
     effectiveSamples: 0,
+    policy: 'maxprob',
+    expectedShots: null,
   })
 
   if (inconsistent) return emptyResult('inconsistent')
@@ -384,6 +411,10 @@ export function analyze(
   let valid = 0
   let attempts = 0
   let method: AnalysisMethod = 'montecarlo'
+
+  // Сохранённые сэмплы Монте-Карло — для двухходового lookahead tie-break
+  const storedOcc: Uint8Array[] = []
+  const storedW: number[] = []
 
   if (enumResult) {
     method = 'enumerated'
@@ -482,6 +513,10 @@ export function analyze(
         for (let i = 0; i < CELLS; i++) {
           if (sample.occ[i] && board[i] === UNKNOWN) counts[i] += sample.w
         }
+        if (storedOcc.length < MC_STORE_LIMIT) {
+          storedOcc.push(sample.occ)
+          storedW.push(sample.w)
+        }
       }
     }
   }
@@ -519,7 +554,7 @@ export function analyze(
     }
   }
 
-  // Рекомендация: клетка с максимальной вероятностью
+  // Базовая рекомендация: клетка с максимальной вероятностью
   let best: number | null = null
   let bestP = 0
   const ranked: { idx: number; p: number }[] = []
@@ -532,6 +567,82 @@ export function analyze(
     }
   }
   ranked.sort((a, b) => b.p - a.p)
+
+  let policy: Policy = 'maxprob'
+  let expectedShots: number | null = null
+
+  // Уровень 1: expectimax-эндшпиль — точная минимизация матожидания выстрелов.
+  // Доступен, когда перебор собрал все конфигурации и их немного.
+  if (
+    method === 'enumerated' &&
+    enumResult?.configs &&
+    enumResult.configs.length > 1 &&
+    enumResult.configs.length <= EXPECTIMAX_MAX_CONFIGS
+  ) {
+    const em = expectimaxBest(enumResult.configs, board)
+    if (em && board[em.best] === UNKNOWN) {
+      best = em.best
+      policy = 'expectimax'
+      expectedShots = em.expected
+    }
+  }
+
+  // Уровень 2: двухходовый lookahead среди почти равных кандидатов (Монте-Карло).
+  // Максимизируем матожидание попаданий за два хода: q·(1+maxP_hit) + (1−q)·maxP_miss.
+  if (policy === 'maxprob' && method === 'montecarlo' && best !== null && storedOcc.length > 200) {
+    const cands = ranked.filter((r) => r.p >= bestP - TIEBREAK_EPS).slice(0, TIEBREAK_TOP)
+    if (cands.length > 1) {
+      let storedTotal = 0
+      const storedCounts = new Float64Array(CELLS)
+      for (let s = 0; s < storedOcc.length; s++) {
+        storedTotal += storedW[s]
+        const occ = storedOcc[s]
+        for (let i = 0; i < CELLS; i++) {
+          if (occ[i] && board[i] === UNKNOWN) storedCounts[i] += storedW[s]
+        }
+      }
+      let bestScore = -1
+      let bestIdx = best
+      const condCounts = new Float64Array(CELLS)
+      for (const cand of cands) {
+        const c = cand.idx
+        condCounts.fill(0)
+        let wHit = 0
+        for (let s = 0; s < storedOcc.length; s++) {
+          const occ = storedOcc[s]
+          if (!occ[c]) continue
+          wHit += storedW[s]
+          for (let i = 0; i < CELLS; i++) {
+            if (occ[i] && board[i] === UNKNOWN) condCounts[i] += storedW[s]
+          }
+        }
+        const wMiss = storedTotal - wHit
+        let maxHit = 0
+        let maxMiss = 0
+        for (let i = 0; i < CELLS; i++) {
+          if (i === c || board[i] !== UNKNOWN) continue
+          if (wHit > 0) {
+            const ph = condCounts[i] / wHit
+            if (ph > maxHit) maxHit = ph
+          }
+          if (wMiss > 0) {
+            const pm = (storedCounts[i] - condCounts[i]) / wMiss
+            if (pm > maxMiss) maxMiss = pm
+          }
+        }
+        const q = storedTotal > 0 ? wHit / storedTotal : 0
+        const score = q * (1 + maxHit) + (1 - q) * maxMiss
+        if (score > bestScore) {
+          bestScore = score
+          bestIdx = c
+        }
+      }
+      if (bestIdx !== best) {
+        best = bestIdx
+      }
+      policy = 'lookahead'
+    }
+  }
 
   // «Точно пусто»: статическое доказательство (всегда корректно) +
   // нулевой счётчик при полном переборе (тоже доказательство)
@@ -563,6 +674,8 @@ export function analyze(
     exact,
     method,
     effectiveSamples: Math.round(effectiveSamples),
+    policy,
+    expectedShots,
   }
 }
 
@@ -572,6 +685,8 @@ interface EnumResult {
   counts: Float64Array
   total: number
   nodes: number
+  /** Все конфигурации (списки кораблей), если их не больше EXPECTIMAX_MAX_CONFIGS */
+  configs: number[][][] | null
 }
 
 /**
@@ -589,7 +704,7 @@ function tryEnumerate(
   limit: number,
 ): EnumResult | null {
   const n = remaining.length
-  if (n === 0) return { counts: new Float64Array(CELLS), total: 1, nodes: 0 }
+  if (n === 0) return { counts: new Float64Array(CELLS), total: 1, nodes: 0, configs: [] }
 
   // Верхняя оценка: произведение числа кандидатов с поправкой на одинаковые длины
   let estimate = 1
@@ -597,7 +712,7 @@ function tryEnumerate(
   for (const L of remaining) groupSize.set(L, (groupSize.get(L) ?? 0) + 1)
   for (const [L, g] of groupSize) {
     const c = (validByLen.get(L) as number[][]).length
-    if (c === 0) return { counts: new Float64Array(CELLS), total: 0, nodes: 0 }
+    if (c === 0) return { counts: new Float64Array(CELLS), total: 0, nodes: 0, configs: [] }
     // C(c, g) ≤ c^g / g!
     let f = 1
     for (let k = 0; k < g; k++) f *= c
@@ -613,6 +728,8 @@ function tryEnumerate(
   const blockCount = new Int16Array(CELLS)
   const counts = new Float64Array(CELLS)
   const chosen: number[][] = []
+  const cfgs: number[][][] = []
+  let collect = true
   let total = 0
   let nodes = 0
   let uncoveredHits = hitCells.length
@@ -658,6 +775,15 @@ function tryEnumerate(
             if (board[c] === UNKNOWN) counts[c]++
           }
         }
+        // Собираем конфигурации для expectimax, пока их немного.
+        // chosen хранит ссылки на кэшированные placements — копия среза дешёвая.
+        if (collect) {
+          if (total <= EXPECTIMAX_MAX_CONFIGS) cfgs.push(chosen.slice())
+          else {
+            collect = false
+            cfgs.length = 0
+          }
+        }
       }
       return
     }
@@ -689,5 +815,212 @@ function tryEnumerate(
 
   dfs(0, -1)
   if (aborted) return null
-  return { counts, total, nodes }
+  return { counts, total, nodes, configs: collect ? cfgs : null }
+}
+
+// ---------- Expectimax-эндшпиль ----------
+
+const EXPECTIMAX_ABORT = Symbol('expectimax-abort')
+
+interface ExpectimaxResult {
+  best: number
+  /** Матожидание выстрелов до победы при оптимальной игре */
+  expected: number
+}
+
+/**
+ * Точная минимизация матожидания оставшихся выстрелов.
+ *
+ * Состояние знания игрока полностью описывается множеством выживших конфигураций S
+ * (каждая равновероятна — следствие равномерности точного перебора) и множеством
+ * уже поражённых клеток H. Выстрел в клетку c разбивает S по детерминированному
+ * сигналу: «мимо» / «ранил» / «убил корабль длины L», и
+ *   E(S,H) = min_c [ 1 + Σ_сигнал (|S_сиг|/|S|) · E(S_сиг, H') ].
+ * Терминал: |S| = 1 — дальше стреляем только по известным клеткам корабля.
+ *
+ * Информация «убил» (длина, а в русских правилах и ореол) не требует отдельного
+ * моделирования: она эквивалентна отсечению несовместимых конфигураций из S.
+ */
+function expectimaxBest(configs: number[][][], board: number[]): ExpectimaxResult | null {
+  // Принадлежность клетки кораблю для каждой конфигурации
+  const shipOf: Int8Array[] = configs.map((cfg) => {
+    const m = new Int8Array(CELLS).fill(-1)
+    for (let si = 0; si < cfg.length; si++) {
+      for (const c of cfg[si]) m[c] = si
+    }
+    return m
+  })
+
+  const hits = new Uint8Array(CELLS)
+  for (let i = 0; i < CELLS; i++) if (board[i] === HIT) hits[i] = 1
+
+  let nodes = 0
+  const memo = new Map<string, number>()
+
+  /** Сколько клеток конфигурации k ещё не поражено */
+  const remCells = (k: number): number => {
+    let r = 0
+    for (const ship of configs[k]) for (const c of ship) if (!hits[c]) r++
+    return r
+  }
+
+  /** Нижняя граница E(S): в среднем нужно поразить не меньше оставшихся палуб */
+  const lowerBound = (alive: number[]): number => {
+    let sum = 0
+    for (const k of alive) sum += remCells(k)
+    return sum / alive.length
+  }
+
+  const stateKey = (alive: number[]): string => {
+    let hk = ''
+    for (let i = 0; i < CELLS; i++) if (hits[i]) hk += i + ','
+    return alive.join(',') + '|' + hk
+  }
+
+  const solve = (alive: number[]): number => {
+    if (alive.length === 1) return remCells(alive[0])
+    if (nodes++ > EXPECTIMAX_NODE_CAP) throw EXPECTIMAX_ABORT
+
+    const key = stateKey(alive)
+    const cached = memo.get(key)
+    if (cached !== undefined) return cached
+
+    // Кандидаты: непоражённые клетки, занятые хотя бы одной живой конфигурацией
+    const occCount = new Float64Array(CELLS)
+    for (const k of alive) {
+      const so = shipOf[k]
+      for (let c = 0; c < CELLS; c++) {
+        if (so[c] >= 0 && !hits[c]) occCount[c]++
+      }
+    }
+    const candidates: number[] = []
+    for (let c = 0; c < CELLS; c++) if (occCount[c] > 0) candidates.push(c)
+    // Порядок: сначала клетки с максимальной вероятностью — лучшее отсечение
+    candidates.sort((a, b) => occCount[b] - occCount[a])
+
+    let bestE = Infinity
+
+    for (const c of candidates) {
+      // Разбиение по сигналу
+      const missGroup: number[] = []
+      const groups = new Map<string, number[]>()
+      for (const k of alive) {
+        const si = shipOf[k][c]
+        if (si < 0) {
+          missGroup.push(k)
+          continue
+        }
+        const ship = configs[k][si]
+        let sunk = true
+        for (const cc of ship) {
+          if (cc !== c && !hits[cc]) {
+            sunk = false
+            break
+          }
+        }
+        const sig = sunk ? 'S' + ship.length : 'H'
+        const g = groups.get(sig)
+        if (g) g.push(k)
+        else groups.set(sig, [k])
+      }
+
+      hits[c] = 1
+      // Оптимистичная оценка ветки — для отсечения без рекурсии
+      let optimistic = 1
+      if (missGroup.length) {
+        optimistic += (missGroup.length / alive.length) * lowerBound(missGroup)
+      }
+      for (const g of groups.values()) {
+        optimistic += (g.length / alive.length) * lowerBound(g)
+      }
+      if (optimistic >= bestE) {
+        hits[c] = 0
+        continue
+      }
+
+      let e = 1
+      for (const g of groups.values()) {
+        e += (g.length / alive.length) * (g.length === 1 ? remCells(g[0]) : solve(g))
+        if (e >= bestE) break
+      }
+      hits[c] = 0
+      if (e < bestE && missGroup.length) {
+        e += (missGroup.length / alive.length) * (missGroup.length === 1 ? remCells(missGroup[0]) : solve(missGroup))
+      }
+      if (e < bestE) bestE = e
+    }
+
+    memo.set(key, bestE)
+    return bestE
+  }
+
+  try {
+    const all = configs.map((_, k) => k)
+    // Терминальный случай: всё уже поражено
+    let anyRem = false
+    for (const k of all) {
+      if (remCells(k) > 0) {
+        anyRem = true
+        break
+      }
+    }
+    if (!anyRem) return null
+
+    // Корневой выбор: перебираем кандидатов и возвращаем лучший ход
+    const occCount = new Float64Array(CELLS)
+    for (const k of all) {
+      const so = shipOf[k]
+      for (let c = 0; c < CELLS; c++) if (so[c] >= 0 && !hits[c]) occCount[c]++
+    }
+    const candidates: number[] = []
+    for (let c = 0; c < CELLS; c++) if (occCount[c] > 0) candidates.push(c)
+    candidates.sort((a, b) => occCount[b] - occCount[a])
+
+    let bestCell = -1
+    let bestE = Infinity
+    for (const c of candidates) {
+      const missGroup: number[] = []
+      const groups = new Map<string, number[]>()
+      for (const k of all) {
+        const si = shipOf[k][c]
+        if (si < 0) {
+          missGroup.push(k)
+          continue
+        }
+        const ship = configs[k][si]
+        let sunk = true
+        for (const cc of ship) {
+          if (cc !== c && !hits[cc]) {
+            sunk = false
+            break
+          }
+        }
+        const sig = sunk ? 'S' + ship.length : 'H'
+        const g = groups.get(sig)
+        if (g) g.push(k)
+        else groups.set(sig, [k])
+      }
+
+      hits[c] = 1
+      let e = 1
+      for (const g of groups.values()) {
+        e += (g.length / all.length) * (g.length === 1 ? remCells(g[0]) : solve(g))
+        if (e >= bestE) break
+      }
+      hits[c] = 0
+      if (e < bestE && missGroup.length) {
+        e += (missGroup.length / all.length) * (missGroup.length === 1 ? remCells(missGroup[0]) : solve(missGroup))
+      }
+      if (e < bestE) {
+        bestE = e
+        bestCell = c
+      }
+    }
+
+    if (bestCell < 0) return null
+    return { best: bestCell, expected: bestE }
+  } catch (err) {
+    if (err === EXPECTIMAX_ABORT) return null
+    throw err
+  }
 }
