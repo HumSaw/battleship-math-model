@@ -49,14 +49,17 @@ export function Board({
 
   return (
     <div
-      className="grid w-full max-w-xl gap-px font-mono text-sm"
+      className="grid w-full max-w-xl gap-[3px] font-mono text-sm"
       style={{ gridTemplateColumns: `1.5rem repeat(${SIZE}, minmax(0, 1fr))` }}
       role="grid"
       aria-label="Поле противника"
     >
       <div />
       {COL_LETTERS.map((l) => (
-        <div key={l} className="pb-1 text-center text-xs text-muted-foreground">
+        <div
+          key={l}
+          className="pb-1.5 text-center text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+        >
           {l}
         </div>
       ))}
@@ -111,7 +114,7 @@ function RowCells({
 }) {
   return (
     <>
-      <div className="flex items-center justify-center pr-1 text-xs text-muted-foreground">
+      <div className="flex items-center justify-center pr-1.5 text-[11px] font-semibold text-muted-foreground/80">
         {row + 1}
       </div>
       {Array.from({ length: SIZE }, (_, c) => {
@@ -135,10 +138,12 @@ function RowCells({
               onCellErase(i)
             }}
             className={cn(
-              'relative flex aspect-square select-none items-center justify-center border border-border/60 transition-colors',
-              state === UNKNOWN && 'hover:border-primary/70',
-              state === HIT && 'bg-blood',
-              state === SUNK && 'bg-sunk-black',
+              'relative flex aspect-square select-none items-center justify-center rounded-[4px] border transition-colors',
+              state === UNKNOWN &&
+                'border-border/50 bg-foreground/[0.03] hover:border-primary/70 hover:bg-foreground/[0.06]',
+              state === MISS && 'border-border/40 bg-background/40',
+              state === HIT && 'border-destructive/40 bg-blood',
+              state === SUNK && 'border-foreground/15 bg-sunk-black',
               isBest && 'z-10 ring-2 ring-signal',
               activeCell === i && 'z-10 ring-2 ring-foreground/60',
             )}
@@ -182,7 +187,7 @@ function RowCells({
             {isBest && (
               <span
                 aria-hidden
-                className="animate-signal-blink pointer-events-none absolute inset-0 border-2 border-signal"
+                className="animate-signal-blink pointer-events-none absolute inset-0 rounded-[4px] border-2 border-signal"
               />
             )}
           </button>

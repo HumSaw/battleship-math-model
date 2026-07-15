@@ -260,30 +260,45 @@ export function Advisor() {
   )
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 lg:py-10">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 py-6 lg:gap-6 lg:py-10">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-balance font-mono text-2xl font-bold tracking-tight text-foreground lg:text-3xl">
-            АДМИРАЛ<span className="text-primary">_</span>
-          </h1>
-          <p className="mt-1 max-w-xl text-pretty text-sm leading-relaxed text-muted-foreground">
+          <div className="flex items-center gap-2.5">
+            <span
+              aria-hidden
+              className="flex size-8 items-center justify-center rounded-md border border-primary/40 bg-primary/10 font-mono text-sm font-bold text-primary shadow-[0_0_14px_-2px] shadow-primary/40"
+            >
+              А
+            </span>
+            <h1 className="text-balance font-mono text-2xl font-bold tracking-tight text-foreground lg:text-3xl">
+              АДМИРАЛ<span className="text-primary">_</span>
+            </h1>
+          </div>
+          <p className="mt-2 max-w-xl text-pretty text-sm leading-relaxed text-muted-foreground">
             Вероятностный движок для «Морского боя»: точный перебор в эндшпиле, взвешенное
             Монте-Карло в середине партии — всегда математически лучший выстрел.
           </p>
         </div>
-        <dl className="flex gap-5 font-mono text-sm">
-          <div>
-            <dt className="text-xs text-muted-foreground">Выстрелов</dt>
-            <dd className="text-lg font-semibold text-foreground">{shots}</dd>
+        <dl className="panel flex divide-x divide-border px-1 py-2.5 font-mono text-sm">
+          <div className="px-4 text-center">
+            <dt className="text-[10px] uppercase tracking-widest text-muted-foreground">
+              Выстрелов
+            </dt>
+            <dd className="mt-0.5 text-xl font-semibold tabular-nums text-foreground">{shots}</dd>
           </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Попаданий</dt>
-            <dd className="text-lg font-semibold text-primary">{hits}</dd>
+          <div className="px-4 text-center">
+            <dt className="text-[10px] uppercase tracking-widest text-muted-foreground">
+              Попаданий
+            </dt>
+            <dd className="mt-0.5 text-xl font-semibold tabular-nums text-primary">{hits}</dd>
           </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Точность</dt>
-            <dd className="text-lg font-semibold text-foreground">
-              {shots > 0 ? Math.round((hits / shots) * 100) : 0}%
+          <div className="px-4 text-center">
+            <dt className="text-[10px] uppercase tracking-widest text-muted-foreground">
+              Точность
+            </dt>
+            <dd className="mt-0.5 text-xl font-semibold tabular-nums text-foreground">
+              {shots > 0 ? Math.round((hits / shots) * 100) : 0}
+              <span className="text-sm text-muted-foreground">%</span>
             </dd>
           </div>
         </dl>
@@ -312,12 +327,29 @@ export function Advisor() {
             >
               Повторить
             </Button>
-            <span className="ml-auto text-xs text-muted-foreground">
+            <span className="ml-auto font-mono text-xs tabular-nums text-muted-foreground">
               Ход {cursor} · клик по клетке — выбор результата
             </span>
           </div>
 
-          <div className="rounded-lg border border-border bg-card p-3 sm:p-4">
+          <div className="panel relative p-4 sm:p-5">
+            {/* Тактические уголки-кронштейны */}
+            <span
+              aria-hidden
+              className="pointer-events-none absolute left-2 top-2 size-3 border-l-2 border-t-2 border-primary/50"
+            />
+            <span
+              aria-hidden
+              className="pointer-events-none absolute right-2 top-2 size-3 border-r-2 border-t-2 border-primary/50"
+            />
+            <span
+              aria-hidden
+              className="pointer-events-none absolute bottom-2 left-2 size-3 border-b-2 border-l-2 border-primary/50"
+            />
+            <span
+              aria-hidden
+              className="pointer-events-none absolute bottom-2 right-2 size-3 border-b-2 border-r-2 border-primary/50"
+            />
             <Board
               board={board}
               probs={analysis?.probs ?? new Array(CELLS).fill(0)}
@@ -330,7 +362,7 @@ export function Advisor() {
               onCellClick={onCellClick}
               onCellErase={eraseCell}
             />
-            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+            <p className="mt-3.5 text-xs leading-relaxed text-muted-foreground">
               Клик по клетке — отметить результат выстрела, правый клик — стереть. Пульсирующая
               рамка — лучший выстрел. Ctrl+Z — отмена хода.
             </p>
@@ -372,8 +404,8 @@ export function Advisor() {
             destroyed={analysis?.destroyed ?? []}
           />
 
-          <section aria-label="Настройки" className="rounded-lg border border-border bg-card p-4">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          <section aria-label="Настройки" className="panel p-4 sm:p-5">
+            <h2 className="panel-title font-mono text-xs font-semibold uppercase tracking-widest text-muted-foreground">
               Настройки
             </h2>
 
@@ -434,13 +466,24 @@ export function Advisor() {
 
           <section
             aria-label="Как пользоваться"
-            className="rounded-lg border border-border bg-card p-4 text-sm leading-relaxed text-muted-foreground"
+            className="panel p-4 text-sm leading-relaxed text-muted-foreground sm:p-5"
           >
-            <h2 className="text-sm font-semibold uppercase tracking-wider">Как пользоваться</h2>
-            <ol className="mt-2 list-inside list-decimal space-y-1">
-              <li>Стреляйте в клетку с пульсирующей рамкой.</li>
-              <li>Кликните по клетке и выберите ответ: «Мимо», «Ранил» или «Убил».</li>
-              <li>Дви��ок мгновенно пересчитает вероятности — повторяйте до победы.</li>
+            <h2 className="panel-title font-mono text-xs font-semibold uppercase tracking-widest">
+              Как пользоваться
+            </h2>
+            <ol className="mt-3 space-y-2">
+              {[
+                'Стреляйте в клетку с мигающей оранжевой рамкой.',
+                'Кликните по клетке и выберите ответ: «Мимо», «Ранил» или «Убил».',
+                'Движок мгновенно пересчитает вероятности — повторяйте до победы.',
+              ].map((step, n) => (
+                <li key={n} className="flex gap-2.5">
+                  <span className="mt-px flex size-4.5 shrink-0 items-center justify-center rounded-full border border-primary/40 font-mono text-[10px] font-bold text-primary">
+                    {n + 1}
+                  </span>
+                  <span>{step}</span>
+                </li>
+              ))}
             </ol>
           </section>
         </div>
@@ -451,7 +494,7 @@ export function Advisor() {
           ref={popoverRef}
           role="dialog"
           aria-label={`Результат выстрела в ${cellName(popover.cell)}`}
-          className="fixed z-50 min-w-40 rounded-lg border border-border bg-popover p-2 shadow-lg"
+          className="animate-popover-in fixed z-50 min-w-44 rounded-xl border border-border bg-popover/95 p-2 shadow-[0_16px_48px_-12px_oklch(0_0_0/0.6)] backdrop-blur-md"
           style={{
             left: Math.max(
               8,
@@ -471,15 +514,22 @@ export function Advisor() {
             ),
           }}
         >
-          <div className="mb-1.5 px-1 font-mono text-xs font-semibold text-muted-foreground">
+          <div className="mb-1.5 flex items-center gap-1.5 border-b border-border px-1 pb-1.5 font-mono text-xs font-semibold text-primary">
+            <span aria-hidden className="size-1 rounded-full bg-primary" />
             {cellName(popover.cell)}
           </div>
 
           {popover.data.stage === 'result' && (
             <div className="flex flex-col gap-1">
-              <PopoverButton onClick={() => setCellState(popover.cell, MISS)}>Мимо</PopoverButton>
-              <PopoverButton onClick={() => setCellState(popover.cell, HIT)}>Ранил</PopoverButton>
-              <PopoverButton onClick={() => markSunk(popover.cell)}>Убил</PopoverButton>
+              <PopoverButton onClick={() => setCellState(popover.cell, MISS)} dot="miss">
+                Мимо
+              </PopoverButton>
+              <PopoverButton onClick={() => setCellState(popover.cell, HIT)} dot="hit">
+                Ранил
+              </PopoverButton>
+              <PopoverButton onClick={() => markSunk(popover.cell)} dot="sunk">
+                Убил
+              </PopoverButton>
               {board[popover.cell] !== UNKNOWN && (
                 <PopoverButton onClick={() => eraseCell(popover.cell)} muted>
                   Стереть
@@ -520,24 +570,33 @@ export function Advisor() {
   )
 }
 
+const DOT_CLASS = {
+  miss: 'bg-muted-foreground',
+  hit: 'bg-blood ring-1 ring-destructive/50',
+  sunk: 'bg-sunk-black ring-1 ring-foreground/30',
+} as const
+
 function PopoverButton({
   children,
   onClick,
   muted,
+  dot,
 }: {
   children: React.ReactNode
   onClick: () => void
   muted?: boolean
+  dot?: keyof typeof DOT_CLASS
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        'rounded px-2.5 py-1.5 text-left font-mono text-sm transition-colors hover:bg-accent hover:text-accent-foreground',
+        'flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left font-mono text-sm transition-colors hover:bg-accent hover:text-accent-foreground',
         muted ? 'text-muted-foreground' : 'text-popover-foreground',
       )}
     >
+      {dot && <span aria-hidden className={cn('size-2 rounded-full', DOT_CLASS[dot])} />}
       {children}
     </button>
   )
