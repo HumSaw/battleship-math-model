@@ -137,6 +137,11 @@ var DEFAULT_OPTIONS = {
   enumLimit: 15e4
 };
 var DEADLINE_CHECK_INTERVAL = 64;
+var EXPECTIMAX_MAX_CONFIGS = 400;
+var EXPECTIMAX_NODE_CAP = 4e5;
+var TIEBREAK_EPS = 0.035;
+var TIEBREAK_TOP = 6;
+var MC_STORE_LIMIT = 4e3;
 function analyze(board, rules, sunkShips, options) {
   const opts = { ...DEFAULT_OPTIONS, ...options };
   const nt = rules === "russian";
@@ -215,7 +220,9 @@ function analyze(board, rules, sunkShips, options) {
     impossible: new Array(CELLS).fill(false),
     exact: true,
     method: "enumerated",
-    effectiveSamples: 0
+    effectiveSamples: 0,
+    policy: "maxprob",
+    expectedShots: null
   });
   if (inconsistent) return emptyResult("inconsistent");
   if (remaining.length === 0 && hitCells.length === 0) return emptyResult("won");
@@ -270,6 +277,8 @@ function analyze(board, rules, sunkShips, options) {
   let valid = 0;
   let attempts = 0;
   let method = "montecarlo";
+  const storedOcc = [];
+  const storedW = [];
   if (enumResult) {
     method = "enumerated";
     counts.set(enumResult.counts);
@@ -354,6 +363,10 @@ function analyze(board, rules, sunkShips, options) {
         for (let i = 0; i < CELLS; i++) {
           if (sample.occ[i] && board[i] === UNKNOWN) counts[i] += sample.w;
         }
+        if (storedOcc.length < MC_STORE_LIMIT) {
+          storedOcc.push(sample.occ);
+          storedW.push(sample.w);
+        }
       }
     }
   }
@@ -399,6 +412,70 @@ function analyze(board, rules, sunkShips, options) {
     }
   }
   ranked.sort((a, b) => b.p - a.p);
+  let policy = "maxprob";
+  let expectedShots = null;
+  if (method === "enumerated" && enumResult?.configs && enumResult.configs.length > 1 && enumResult.configs.length <= EXPECTIMAX_MAX_CONFIGS) {
+    const em = expectimaxBest(enumResult.configs, board);
+    if (em && board[em.best] === UNKNOWN) {
+      best = em.best;
+      policy = "expectimax";
+      expectedShots = em.expected;
+    }
+  }
+  if (policy === "maxprob" && method === "montecarlo" && best !== null && storedOcc.length > 200) {
+    const cands = ranked.filter((r) => r.p >= bestP - TIEBREAK_EPS).slice(0, TIEBREAK_TOP);
+    if (cands.length > 1) {
+      let storedTotal = 0;
+      const storedCounts = new Float64Array(CELLS);
+      for (let s = 0; s < storedOcc.length; s++) {
+        storedTotal += storedW[s];
+        const occ = storedOcc[s];
+        for (let i = 0; i < CELLS; i++) {
+          if (occ[i] && board[i] === UNKNOWN) storedCounts[i] += storedW[s];
+        }
+      }
+      let bestScore = -1;
+      let bestIdx = best;
+      const condCounts = new Float64Array(CELLS);
+      for (const cand of cands) {
+        const c = cand.idx;
+        condCounts.fill(0);
+        let wHit = 0;
+        for (let s = 0; s < storedOcc.length; s++) {
+          const occ = storedOcc[s];
+          if (!occ[c]) continue;
+          wHit += storedW[s];
+          for (let i = 0; i < CELLS; i++) {
+            if (occ[i] && board[i] === UNKNOWN) condCounts[i] += storedW[s];
+          }
+        }
+        const wMiss = storedTotal - wHit;
+        let maxHit = 0;
+        let maxMiss = 0;
+        for (let i = 0; i < CELLS; i++) {
+          if (i === c || board[i] !== UNKNOWN) continue;
+          if (wHit > 0) {
+            const ph = condCounts[i] / wHit;
+            if (ph > maxHit) maxHit = ph;
+          }
+          if (wMiss > 0) {
+            const pm = (storedCounts[i] - condCounts[i]) / wMiss;
+            if (pm > maxMiss) maxMiss = pm;
+          }
+        }
+        const q = storedTotal > 0 ? wHit / storedTotal : 0;
+        const score = q * (1 + maxHit) + (1 - q) * maxMiss;
+        if (score > bestScore) {
+          bestScore = score;
+          bestIdx = c;
+        }
+      }
+      if (bestIdx !== best) {
+        best = bestIdx;
+      }
+      policy = "lookahead";
+    }
+  }
   const impossible = new Array(CELLS).fill(false);
   for (let i = 0; i < CELLS; i++) {
     if (board[i] !== UNKNOWN) continue;
@@ -422,18 +499,20 @@ function analyze(board, rules, sunkShips, options) {
     impossible,
     exact,
     method,
-    effectiveSamples: Math.round(effectiveSamples)
+    effectiveSamples: Math.round(effectiveSamples),
+    policy,
+    expectedShots
   };
 }
 function tryEnumerate(remaining, validByLen, baseBlocked, board, hitCells, nt, limit) {
   const n = remaining.length;
-  if (n === 0) return { counts: new Float64Array(CELLS), total: 1, nodes: 0 };
+  if (n === 0) return { counts: new Float64Array(CELLS), total: 1, nodes: 0, configs: [] };
   let estimate = 1;
   const groupSize = /* @__PURE__ */ new Map();
   for (const L of remaining) groupSize.set(L, (groupSize.get(L) ?? 0) + 1);
   for (const [L, g] of groupSize) {
     const c = validByLen.get(L).length;
-    if (c === 0) return { counts: new Float64Array(CELLS), total: 0, nodes: 0 };
+    if (c === 0) return { counts: new Float64Array(CELLS), total: 0, nodes: 0, configs: [] };
     let f = 1;
     for (let k = 0; k < g; k++) f *= c;
     let fact = 1;
@@ -446,6 +525,8 @@ function tryEnumerate(remaining, validByLen, baseBlocked, board, hitCells, nt, l
   const blockCount = new Int16Array(CELLS);
   const counts = new Float64Array(CELLS);
   const chosen = [];
+  const cfgs = [];
+  let collect = true;
   let total = 0;
   let nodes = 0;
   let uncoveredHits = hitCells.length;
@@ -486,6 +567,13 @@ function tryEnumerate(remaining, validByLen, baseBlocked, board, hitCells, nt, l
             if (board[c] === UNKNOWN) counts[c]++;
           }
         }
+        if (collect) {
+          if (total <= EXPECTIMAX_MAX_CONFIGS) cfgs.push(chosen.slice());
+          else {
+            collect = false;
+            cfgs.length = 0;
+          }
+        }
       }
       return;
     }
@@ -513,7 +601,164 @@ function tryEnumerate(remaining, validByLen, baseBlocked, board, hitCells, nt, l
   };
   dfs(0, -1);
   if (aborted) return null;
-  return { counts, total, nodes };
+  return { counts, total, nodes, configs: collect ? cfgs : null };
+}
+var EXPECTIMAX_ABORT = /* @__PURE__ */ Symbol("expectimax-abort");
+function expectimaxBest(configs, board) {
+  const shipOf = configs.map((cfg) => {
+    const m = new Int8Array(CELLS).fill(-1);
+    for (let si = 0; si < cfg.length; si++) {
+      for (const c of cfg[si]) m[c] = si;
+    }
+    return m;
+  });
+  const hits = new Uint8Array(CELLS);
+  for (let i = 0; i < CELLS; i++) if (board[i] === HIT) hits[i] = 1;
+  let nodes = 0;
+  const memo = /* @__PURE__ */ new Map();
+  const remCells = (k) => {
+    let r = 0;
+    for (const ship of configs[k]) for (const c of ship) if (!hits[c]) r++;
+    return r;
+  };
+  const lowerBound = (alive) => {
+    let sum = 0;
+    for (const k of alive) sum += remCells(k);
+    return sum / alive.length;
+  };
+  const stateKey = (alive) => {
+    let hk = "";
+    for (let i = 0; i < CELLS; i++) if (hits[i]) hk += i + ",";
+    return alive.join(",") + "|" + hk;
+  };
+  const solve = (alive) => {
+    if (alive.length === 1) return remCells(alive[0]);
+    if (nodes++ > EXPECTIMAX_NODE_CAP) throw EXPECTIMAX_ABORT;
+    const key = stateKey(alive);
+    const cached = memo.get(key);
+    if (cached !== void 0) return cached;
+    const occCount = new Float64Array(CELLS);
+    for (const k of alive) {
+      const so = shipOf[k];
+      for (let c = 0; c < CELLS; c++) {
+        if (so[c] >= 0 && !hits[c]) occCount[c]++;
+      }
+    }
+    const candidates = [];
+    for (let c = 0; c < CELLS; c++) if (occCount[c] > 0) candidates.push(c);
+    candidates.sort((a, b) => occCount[b] - occCount[a]);
+    let bestE = Infinity;
+    for (const c of candidates) {
+      const missGroup = [];
+      const groups = /* @__PURE__ */ new Map();
+      for (const k of alive) {
+        const si = shipOf[k][c];
+        if (si < 0) {
+          missGroup.push(k);
+          continue;
+        }
+        const ship = configs[k][si];
+        let sunk = true;
+        for (const cc of ship) {
+          if (cc !== c && !hits[cc]) {
+            sunk = false;
+            break;
+          }
+        }
+        const sig = sunk ? "S" + ship.length : "H";
+        const g = groups.get(sig);
+        if (g) g.push(k);
+        else groups.set(sig, [k]);
+      }
+      hits[c] = 1;
+      let optimistic = 1;
+      if (missGroup.length) {
+        optimistic += missGroup.length / alive.length * lowerBound(missGroup);
+      }
+      for (const g of groups.values()) {
+        optimistic += g.length / alive.length * lowerBound(g);
+      }
+      if (optimistic >= bestE) {
+        hits[c] = 0;
+        continue;
+      }
+      let e = 1;
+      for (const g of groups.values()) {
+        e += g.length / alive.length * (g.length === 1 ? remCells(g[0]) : solve(g));
+        if (e >= bestE) break;
+      }
+      hits[c] = 0;
+      if (e < bestE && missGroup.length) {
+        e += missGroup.length / alive.length * (missGroup.length === 1 ? remCells(missGroup[0]) : solve(missGroup));
+      }
+      if (e < bestE) bestE = e;
+    }
+    memo.set(key, bestE);
+    return bestE;
+  };
+  try {
+    const all = configs.map((_, k) => k);
+    let anyRem = false;
+    for (const k of all) {
+      if (remCells(k) > 0) {
+        anyRem = true;
+        break;
+      }
+    }
+    if (!anyRem) return null;
+    const occCount = new Float64Array(CELLS);
+    for (const k of all) {
+      const so = shipOf[k];
+      for (let c = 0; c < CELLS; c++) if (so[c] >= 0 && !hits[c]) occCount[c]++;
+    }
+    const candidates = [];
+    for (let c = 0; c < CELLS; c++) if (occCount[c] > 0) candidates.push(c);
+    candidates.sort((a, b) => occCount[b] - occCount[a]);
+    let bestCell = -1;
+    let bestE = Infinity;
+    for (const c of candidates) {
+      const missGroup = [];
+      const groups = /* @__PURE__ */ new Map();
+      for (const k of all) {
+        const si = shipOf[k][c];
+        if (si < 0) {
+          missGroup.push(k);
+          continue;
+        }
+        const ship = configs[k][si];
+        let sunk = true;
+        for (const cc of ship) {
+          if (cc !== c && !hits[cc]) {
+            sunk = false;
+            break;
+          }
+        }
+        const sig = sunk ? "S" + ship.length : "H";
+        const g = groups.get(sig);
+        if (g) g.push(k);
+        else groups.set(sig, [k]);
+      }
+      hits[c] = 1;
+      let e = 1;
+      for (const g of groups.values()) {
+        e += g.length / all.length * (g.length === 1 ? remCells(g[0]) : solve(g));
+        if (e >= bestE) break;
+      }
+      hits[c] = 0;
+      if (e < bestE && missGroup.length) {
+        e += missGroup.length / all.length * (missGroup.length === 1 ? remCells(missGroup[0]) : solve(missGroup));
+      }
+      if (e < bestE) {
+        bestE = e;
+        bestCell = c;
+      }
+    }
+    if (bestCell < 0) return null;
+    return { best: bestCell, expected: bestE };
+  } catch (err) {
+    if (err === EXPECTIMAX_ABORT) return null;
+    throw err;
+  }
 }
 
 // scripts/simulate.ts
