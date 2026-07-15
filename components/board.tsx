@@ -3,7 +3,7 @@
 import { cn } from '@/lib/utils'
 import {
   CELLS,
-  COL_LETTERS,
+  ROW_LETTERS,
   HIT,
   MISS,
   SIZE,
@@ -55,12 +55,12 @@ export function Board({
       aria-label="Поле противника"
     >
       <div />
-      {COL_LETTERS.map((l) => (
+      {Array.from({ length: SIZE }, (_, c) => (
         <div
-          key={l}
-          className="pb-1.5 text-center text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+          key={c}
+          className="pb-1.5 text-center text-[11px] font-medium tabular-nums text-muted-foreground"
         >
-          {l}
+          {c + 1}
         </div>
       ))}
 
@@ -114,8 +114,8 @@ function RowCells({
 }) {
   return (
     <>
-      <div className="flex items-center justify-center pr-1.5 text-[11px] font-semibold text-muted-foreground/80">
-        {row + 1}
+      <div className="flex items-center justify-center pr-1.5 text-[11px] font-semibold uppercase text-muted-foreground/80">
+        {ROW_LETTERS[row]}
       </div>
       {Array.from({ length: SIZE }, (_, c) => {
         const i = row * SIZE + c
