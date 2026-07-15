@@ -4,12 +4,15 @@ import { cn } from '@/lib/utils'
 import { cellName, type Analysis } from '@/lib/battleship-engine'
 
 const MODE_INFO: Record<Analysis['mode'], { label: string; className: string }> = {
-  hunt: { label: 'Режим: поиск', className: 'bg-primary/15 text-primary' },
-  target: { label: 'Режим: добивание', className: 'bg-destructive/20 text-destructive' },
-  won: { label: 'Все корабли потоплены', className: 'bg-primary/15 text-primary' },
+  hunt: { label: 'Поиск', className: 'border-primary/40 bg-primary/10 text-primary' },
+  target: {
+    label: 'Добивание',
+    className: 'border-destructive/40 bg-destructive/15 text-destructive',
+  },
+  won: { label: 'Победа', className: 'border-primary/40 bg-primary/10 text-primary' },
   inconsistent: {
-    label: 'Позиция противоречива',
-    className: 'bg-destructive/20 text-destructive',
+    label: 'Противоречие',
+    className: 'border-destructive/40 bg-destructive/15 text-destructive',
   },
 }
 
@@ -34,11 +37,8 @@ export function RecommendationPanel({
 }) {
   if (!analysis) {
     return (
-      <section
-        aria-label="Рекомендация движка"
-        className="rounded-lg border border-border bg-card p-4"
-      >
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+      <section aria-label="Рекомендация движка" className="panel p-4 sm:p-5">
+        <h2 className="panel-title font-mono text-xs font-semibold uppercase tracking-widest text-muted-foreground">
           Рекомендация
         </h2>
         <p className="mt-4 animate-pulse font-mono text-sm text-muted-foreground">Расчёт…</p>
@@ -53,17 +53,19 @@ export function RecommendationPanel({
   return (
     <section
       aria-label="Рекомендация движка"
-      className={cn(
-        'rounded-lg border border-border bg-card p-4 transition-opacity',
-        computing && 'opacity-70',
-      )}
+      className={cn('panel p-4 transition-opacity sm:p-5', computing && 'opacity-70')}
     >
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+        <h2 className="panel-title font-mono text-xs font-semibold uppercase tracking-widest text-muted-foreground">
           Рекомендация
-          {computing && <span className="ml-2 animate-pulse text-primary">·расчёт·</span>}
+          {computing && <span className="ml-1 animate-pulse text-primary">·</span>}
         </h2>
-        <span className={cn('rounded px-2 py-0.5 font-mono text-xs', info.className)}>
+        <span
+          className={cn(
+            'rounded-full border px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-widest',
+            info.className,
+          )}
+        >
           {info.label}
         </span>
       </div>
@@ -79,30 +81,44 @@ export function RecommendationPanel({
         </p>
       ) : best !== null ? (
         <>
-          <div className="mt-3 flex items-end gap-4">
-            <div className="font-mono text-5xl font-bold text-primary">{cellName(best)}</div>
-            <div className="pb-1">
-              <div className="font-mono text-xl font-semibold text-foreground">
-                {Math.round(analysis.probs[best] * 100)}%
+          <div className="relative mt-4 overflow-hidden rounded-lg border border-signal/30 bg-signal/[0.07] p-4">
+            <span
+              aria-hidden
+              className="pointer-events-none absolute -right-8 -top-8 size-28 rounded-full bg-signal/15 blur-2xl"
+            />
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <div className="font-mono text-[10px] uppercase tracking-widest text-signal">
+                  Лучший выстрел
+                </div>
+                <div className="animate-signal-glow font-mono text-5xl font-bold leading-tight text-signal">
+                  {cellName(best)}
+                </div>
               </div>
-              <div className="text-xs text-muted-foreground">
-                {exact ? 'вероятность попадания' : 'относительный вес (эвристика)'}
+              <div className="pb-1 text-right">
+                <div className="font-mono text-2xl font-bold text-foreground">
+                  {Math.round(analysis.probs[best] * 100)}%
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {exact ? 'вероятность попадания' : 'относительный вес'}
+                </div>
               </div>
             </div>
           </div>
 
           {top.length > 1 && (
             <div className="mt-4">
-              <div className="text-xs uppercase tracking-wider text-muted-foreground">
+              <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
                 Альтернативы
               </div>
-              <ul className="mt-1.5 flex flex-wrap gap-1.5">
+              <ul className="mt-2 flex flex-wrap gap-1.5">
                 {top.slice(1).map(({ idx, p }) => (
                   <li
                     key={idx}
-                    className="rounded border border-border px-2 py-1 font-mono text-xs text-foreground/90"
+                    className="rounded-md border border-border bg-secondary/50 px-2 py-1 font-mono text-xs text-foreground/90"
                   >
-                    {cellName(idx)} · {Math.round(p * 100)}%
+                    {cellName(idx)} <span className="text-muted-foreground">·</span>{' '}
+                    {Math.round(p * 100)}%
                   </li>
                 ))}
               </ul>
@@ -111,12 +127,10 @@ export function RecommendationPanel({
         </>
       ) : null}
 
-      <div className="mt-4 space-y-0.5 border-t border-border pt-3 font-mono text-xs text-muted-foreground">
+      <div className="mt-4 space-y-1 border-t border-border pt-3 font-mono text-xs leading-relaxed text-muted-foreground">
         <div>
           Метод: {METHOD_LABEL[method]}
-          {method === 'enumerated' && (
-            <> · конфигураций: {validSamples.toLocaleString('ru-RU')}</>
-          )}
+          {method === 'enumerated' && <> · конфигураций: {validSamples.toLocaleString('ru-RU')}</>}
           {method === 'montecarlo' && (
             <>
               {' '}
