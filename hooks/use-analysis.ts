@@ -30,6 +30,8 @@ export function useAnalysis(
   const workerRef = useRef<Worker | null>(null)
   const workerFailed = useRef(false)
   const requestId = useRef(0)
+  /** id последнего запроса, на который воркер уже ответил */
+  const answeredId = useRef(0)
 
   useEffect(() => {
     try {
@@ -38,6 +40,7 @@ export function useAnalysis(
       })
       worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
         if (e.data.id === requestId.current) {
+          answeredId.current = e.data.id
           setAnalysis(e.data.result)
           setComputing(false)
         }
@@ -59,14 +62,15 @@ export function useAnalysis(
     if (worker && !workerFailed.current) {
       setComputing(true)
       worker.postMessage({ id, board, rules, ships })
-      // Страховка: если воркер не ответил за 2 секунды — считаем синхронно
+      // Страховка: если воркер молчит (первый запуск = компиляция модуля),
+      // показываем быстрый синхронный результат, но воркер НЕ отключаем:
+      // его более точный ответ применится, когда придёт. Если воркер уже
+      // ответил на этот запрос — fallback не нужен и результат не трогаем.
       const timer = setTimeout(() => {
-        if (requestId.current === id) {
-          workerFailed.current = true
+        if (requestId.current === id && answeredId.current !== id) {
           setAnalysis(analyze(board, rules, ships, SYNC_FALLBACK_OPTIONS))
-          setComputing(false)
         }
-      }, 2000)
+      }, 1200)
       return () => clearTimeout(timer)
     }
 
