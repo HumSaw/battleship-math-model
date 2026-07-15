@@ -338,17 +338,23 @@ export function Advisor() {
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
             <span className="flex items-center gap-1.5">
+              <span className="inline-block size-3 rounded-[2px] bg-signal" /> лучший выстрел
+            </span>
+            <span className="flex items-center gap-1.5">
               <span className="inline-block size-3 rounded-[2px] bg-primary/70" /> вероятность
             </span>
             <span className="flex items-center gap-1.5">
               <span className="inline-block size-1.5 rounded-full bg-muted-foreground" /> промах
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="font-bold text-destructive">✕</span> ранен
+              <span className="flex size-3.5 items-center justify-center rounded-[2px] bg-blood text-[9px] font-bold text-foreground">
+                ×
+              </span>
+              ранен
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="flex size-3.5 items-center justify-center rounded-[2px] bg-destructive/25 text-[9px] font-bold text-destructive/80">
-                ✕
+              <span className="flex size-3.5 items-center justify-center rounded-[2px] bg-sunk-black text-[9px] font-bold text-destructive">
+                ×
               </span>
               потоплен
             </span>
@@ -434,7 +440,7 @@ export function Advisor() {
             <ol className="mt-2 list-inside list-decimal space-y-1">
               <li>Стреляйте в клетку с пульсирующей рамкой.</li>
               <li>Кликните по клетке и выберите ответ: «Мимо», «Ранил» или «Убил».</li>
-              <li>Движок мгновенно пересчитает вероятности — повторяйте до победы.</li>
+              <li>Дви��ок мгновенно пересчитает вероятности — повторяйте до победы.</li>
             </ol>
           </section>
         </div>
@@ -447,8 +453,22 @@ export function Advisor() {
           aria-label={`Результат выстрела в ${cellName(popover.cell)}`}
           className="fixed z-50 min-w-40 rounded-lg border border-border bg-popover p-2 shadow-lg"
           style={{
-            left: Math.min(popover.x, typeof window !== 'undefined' ? window.innerWidth - 200 : popover.x),
-            top: popover.y + 8,
+            left: Math.max(
+              8,
+              Math.min(
+                popover.x,
+                typeof window !== 'undefined' ? window.innerWidth - 208 : popover.x,
+              ),
+            ),
+            // Прижимаем к нижней границе: fixed-элемент не скроллится,
+            // и кнопки за краем вьюпорта иначе недоступны для клика
+            top: Math.max(
+              8,
+              Math.min(
+                popover.y + 8,
+                typeof window !== 'undefined' ? window.innerHeight - 220 : popover.y + 8,
+              ),
+            ),
           }}
         >
           <div className="mb-1.5 px-1 font-mono text-xs font-semibold text-muted-foreground">

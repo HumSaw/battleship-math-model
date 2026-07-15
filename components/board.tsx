@@ -137,12 +137,13 @@ function RowCells({
             className={cn(
               'relative flex aspect-square select-none items-center justify-center border border-border/60 transition-colors',
               state === UNKNOWN && 'hover:border-primary/70',
-              state === SUNK && 'bg-destructive/25',
-              isBest && 'z-10 ring-2 ring-primary',
+              state === HIT && 'bg-blood',
+              state === SUNK && 'bg-sunk-black',
+              isBest && 'z-10 ring-2 ring-signal',
               activeCell === i && 'z-10 ring-2 ring-foreground/60',
             )}
             style={
-              heat > 0
+              heat > 0 && !isBest
                 ? {
                     backgroundColor: `color-mix(in srgb, var(--color-primary) ${Math.round(
                       heat * 70,
@@ -155,13 +156,13 @@ function RowCells({
               <span aria-hidden className="size-1.5 rounded-full bg-muted-foreground" />
             )}
             {state === HIT && (
-              <span aria-hidden className="text-base font-bold leading-none text-destructive">
-                {'✕'}
+              <span aria-hidden className="text-base font-bold leading-none text-foreground">
+                {'×'}
               </span>
             )}
             {state === SUNK && (
-              <span aria-hidden className="text-base font-bold leading-none text-destructive/80">
-                {'✕'}
+              <span aria-hidden className="text-base font-bold leading-none text-destructive">
+                {'×'}
               </span>
             )}
             {state === UNKNOWN && impossible[i] && (
@@ -181,7 +182,7 @@ function RowCells({
             {isBest && (
               <span
                 aria-hidden
-                className="pointer-events-none absolute inset-0 animate-pulse border-2 border-primary"
+                className="animate-signal-blink pointer-events-none absolute inset-0 border-2 border-signal"
               />
             )}
           </button>
