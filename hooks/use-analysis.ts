@@ -28,54 +28,52 @@ export function useAnalysis(
   const [analysis, setAnalysis] = useState<Analysis | null>(null)
   const [computing, setComputing] = useState(true)
   const workerRef = useRef<Worker | null>(null)
-  const workerFailed = useRef(false)
   const requestId = useRef(0)
-  /** id последнего запроса, на который воркер уже ответил */
-  const answeredId = useRef(0)
-
-  useEffect(() => {
-    try {
-      const worker = new Worker(new URL('../lib/engine.worker.ts', import.meta.url), {
-        type: 'module',
-      })
-      worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
-        if (e.data.id === requestId.current) {
-          answeredId.current = e.data.id
-          setAnalysis(e.data.result)
-          setComputing(false)
-        }
-      }
-      worker.onerror = () => {
-        workerFailed.current = true
-      }
-      workerRef.current = worker
-      return () => worker.terminate()
-    } catch {
-      workerFailed.current = true
-    }
-  }, [])
 
   useEffect(() => {
     const id = ++requestId.current
-    const worker = workerRef.current
+    // analyze() синхронен внутри воркера и не умеет отменяться. Уничтожаем старый
+    // воркер, иначе быстрые клики образуют очередь устаревших расчётов до 900 мс каждый.
+    workerRef.current?.terminate()
+    setComputing(true)
 
-    if (worker && !workerFailed.current) {
-      setComputing(true)
+    let worker: Worker
+    let answered = false
+    try {
+      worker = new Worker(new URL('../lib/engine.worker.ts', import.meta.url), {
+        type: 'module',
+      })
+      workerRef.current = worker
+      worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
+        if (e.data.id !== requestId.current) return
+        answered = true
+        setAnalysis(e.data.result)
+        setComputing(false)
+      }
+      worker.onerror = () => {
+        if (id !== requestId.current) return
+        setAnalysis(analyze(board, rules, ships, SYNC_FALLBACK_OPTIONS))
+        setComputing(false)
+      }
       worker.postMessage({ id, board, rules, ships })
-      // Страховка: если воркер молчит (первый запуск = компиляция модуля),
-      // показываем быстрый синхронный результат, но воркер НЕ отключаем:
-      // его более точный ответ применится, когда придёт. Если воркер уже
-      // ответил на этот запрос — fallback не нужен и результат не трогаем.
-      const timer = setTimeout(() => {
-        if (requestId.current === id && answeredId.current !== id) {
-          setAnalysis(analyze(board, rules, ships, SYNC_FALLBACK_OPTIONS))
-        }
-      }, 1200)
-      return () => clearTimeout(timer)
+    } catch {
+      setAnalysis(analyze(board, rules, ships, SYNC_FALLBACK_OPTIONS))
+      setComputing(false)
+      return
     }
 
-    setAnalysis(analyze(board, rules, ships, SYNC_FALLBACK_OPTIONS))
-    setComputing(false)
+    // Быстрый предварительный ответ, пока точный воркер продолжает считать.
+    const timer = window.setTimeout(() => {
+      if (requestId.current === id && !answered) {
+        setAnalysis(analyze(board, rules, ships, SYNC_FALLBACK_OPTIONS))
+      }
+    }, 1200)
+
+    return () => {
+      window.clearTimeout(timer)
+      worker.terminate()
+      if (workerRef.current === worker) workerRef.current = null
+    }
   }, [board, rules, ships])
 
   return { analysis, computing }
