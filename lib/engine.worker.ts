@@ -11,10 +11,10 @@ interface Request {
 }
 
 const WORKER_OPTIONS = {
-  targetSamples: 30000,
-  maxAttempts: 500000,
-  timeBudgetMs: 700,
-  enumLimit: 200000,
+  targetSamples: 40000,
+  maxAttempts: 700000,
+  timeBudgetMs: 900,
+  enumLimit: 300000,
 }
 
 self.onmessage = (e: MessageEvent<Request>) => {

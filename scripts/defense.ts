@@ -130,7 +130,7 @@ function shotsToKill(ships: Ship[]): number {
   let shots = 0
 
   while (aliveShips > 0 && shots < CELLS + 1) {
-    const res = analyze(board, RULES, { targetSamples: 900, timeBudgetMs: 25 })
+    const res = analyze(board, RULES, null, { targetSamples: 900, timeBudgetMs: 25 })
     const target = res.best
     if (target === null || board[target] !== UNKNOWN) {
       // Движок в тупике — не должно происходить на честной расстановке

@@ -178,27 +178,31 @@ export interface EngineOptions {
 }
 
 const DEFAULT_OPTIONS: Required<EngineOptions> = {
-  targetSamples: 5000,
-  maxAttempts: 80000,
-  timeBudgetMs: 240,
-  enumLimit: 150000,
+  targetSamples: 12000,
+  maxAttempts: 200000,
+  timeBudgetMs: 380,
+  enumLimit: 250000,
 }
 
 /** Как часто проверять дедлайн (каждые N попыток) — Date.now() в цикле дорог */
 const DEADLINE_CHECK_INTERVAL = 64
 
 // ---------- Параметры стратегии (expectimax и lookahead) ----------
+// Настройки основаны на анализе эталонных решателей (DataGenetics: медиана 42 хода
+// для международных правил; C. Liam Brown: диагональный skew в охоте).
 
 /** Максимум конфигураций, при котором включается точный expectimax-эндшпиль */
-const EXPECTIMAX_MAX_CONFIGS = 400
+const EXPECTIMAX_MAX_CONFIGS = 1500
 /** Предохранитель по узлам дерева expectimax */
-const EXPECTIMAX_NODE_CAP = 400000
+const EXPECTIMAX_NODE_CAP = 1500000
 /** Tie-break: кандидаты в пределах EPS от максимума вероятности */
-const TIEBREAK_EPS = 0.035
+const TIEBREAK_EPS = 0.05
 /** Tie-break: максимум кандидатов для двухходового lookahead */
-const TIEBREAK_TOP = 6
+const TIEBREAK_TOP = 10
 /** Максимум сохраняемых сэмплов Монте-Карло для lookahead */
-const MC_STORE_LIMIT = 4000
+const MC_STORE_LIMIT = 6000
+/** Бонус диагональной решётки в охоте: доля от очков lookahead-кандидата */
+const SKEW_BONUS = 0.02
 
 export type AnalysisMethod = 'enumerated' | 'montecarlo' | 'heuristic'
 
@@ -390,7 +394,7 @@ export function analyze(
     }
   }
 
-  // 5. Сид Г��СЧ из позиции — рекомендации стабильны для одной и той же позиции
+  // 5. Сид Г��СЧ из позиции �� рекомендации стабильны для одной и той же позиции
   let seed = rules === 'russian' ? 0x9e3779b9 : 0x85ebca6b
   for (let i = 0; i < CELLS; i++) seed = (Math.imul(seed, 31) + board[i] + 1) | 0
   const rng = mulberry32(seed)
@@ -591,7 +595,25 @@ export function analyze(
 
   // Уровень 2: двухходовый lookahead среди почти равных кандидатов (Монте-Карло).
   // Максимизируем матожидание попаданий за два хода: q·(1+maxP_hit) + (1−q)·maxP_miss.
+  // Плюс диагональный skew (метод C. Liam Brown): в охоте среди равных кандидатов
+  // предпочитаем клетки решётки (r+c) mod s — так меньше выстрелов «перекрывают»
+  // друг друга и хвост эндшпиля сокращается.
   if (policy === 'maxprob' && method === 'montecarlo' && best !== null && storedOcc.length > 200) {
+    // Шаг решётки: длина минимального живого корабля, но не меньше 2 —
+    // однопалубники (русские правила) решётку не задают.
+    const minAlive = remaining.length > 0 ? Math.max(2, Math.min(...remaining)) : 2
+    // Класс решётки: где уже больше всего обстрелянных клеток — туда и продолжаем,
+    // чтобы не начинать вторую, независимую сетку.
+    const classShots = new Array<number>(minAlive).fill(0)
+    for (let i = 0; i < CELLS; i++) {
+      if (board[i] !== UNKNOWN) classShots[(rowOf(i) + colOf(i)) % minAlive]++
+    }
+    let skewClass = 0
+    for (let k = 1; k < minAlive; k++) {
+      if (classShots[k] > classShots[skewClass]) skewClass = k
+    }
+    const onLattice = (c: number) => (rowOf(c) + colOf(c)) % minAlive === skewClass
+
     const cands = ranked.filter((r) => r.p >= bestP - TIEBREAK_EPS).slice(0, TIEBREAK_TOP)
     if (cands.length > 1) {
       let storedTotal = 0
@@ -633,7 +655,9 @@ export function analyze(
           }
         }
         const q = storedTotal > 0 ? wHit / storedTotal : 0
-        const score = q * (1 + maxHit) + (1 - q) * maxMiss
+        let score = q * (1 + maxHit) + (1 - q) * maxMiss
+        // Skew-бонус только в охоте: при добивании решётка не имеет смысла
+        if (hitCells.length === 0 && onLattice(c)) score += SKEW_BONUS
         if (score > bestScore) {
           bestScore = score
           bestIdx = c

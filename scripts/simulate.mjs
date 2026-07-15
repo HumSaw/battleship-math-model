@@ -131,17 +131,18 @@ function floodClusters(board, state) {
   return clusters;
 }
 var DEFAULT_OPTIONS = {
-  targetSamples: 5e3,
-  maxAttempts: 8e4,
-  timeBudgetMs: 240,
-  enumLimit: 15e4
+  targetSamples: 12e3,
+  maxAttempts: 2e5,
+  timeBudgetMs: 380,
+  enumLimit: 25e4
 };
 var DEADLINE_CHECK_INTERVAL = 64;
-var EXPECTIMAX_MAX_CONFIGS = 400;
-var EXPECTIMAX_NODE_CAP = 4e5;
-var TIEBREAK_EPS = 0.035;
-var TIEBREAK_TOP = 6;
-var MC_STORE_LIMIT = 4e3;
+var EXPECTIMAX_MAX_CONFIGS = 1500;
+var EXPECTIMAX_NODE_CAP = 15e5;
+var TIEBREAK_EPS = 0.05;
+var TIEBREAK_TOP = 10;
+var MC_STORE_LIMIT = 6e3;
+var SKEW_BONUS = 0.02;
 function analyze(board, rules, sunkShips, options) {
   const opts = { ...DEFAULT_OPTIONS, ...options };
   const nt = rules === "russian";
@@ -423,6 +424,16 @@ function analyze(board, rules, sunkShips, options) {
     }
   }
   if (policy === "maxprob" && method === "montecarlo" && best !== null && storedOcc.length > 200) {
+    const minAlive = remaining.length > 0 ? Math.max(2, Math.min(...remaining)) : 2;
+    const classShots = new Array(minAlive).fill(0);
+    for (let i = 0; i < CELLS; i++) {
+      if (board[i] !== UNKNOWN) classShots[(rowOf(i) + colOf(i)) % minAlive]++;
+    }
+    let skewClass = 0;
+    for (let k = 1; k < minAlive; k++) {
+      if (classShots[k] > classShots[skewClass]) skewClass = k;
+    }
+    const onLattice = (c) => (rowOf(c) + colOf(c)) % minAlive === skewClass;
     const cands = ranked.filter((r) => r.p >= bestP - TIEBREAK_EPS).slice(0, TIEBREAK_TOP);
     if (cands.length > 1) {
       let storedTotal = 0;
@@ -464,7 +475,8 @@ function analyze(board, rules, sunkShips, options) {
           }
         }
         const q = storedTotal > 0 ? wHit / storedTotal : 0;
-        const score = q * (1 + maxHit) + (1 - q) * maxMiss;
+        let score = q * (1 + maxHit) + (1 - q) * maxMiss;
+        if (hitCells.length === 0 && onLattice(c)) score += SKEW_BONUS;
         if (score > bestScore) {
           bestScore = score;
           bestIdx = c;
