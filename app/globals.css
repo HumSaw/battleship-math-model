@@ -38,6 +38,9 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
+  --color-signal: var(--signal);
+  --color-blood: var(--blood);
+  --color-sunk-black: var(--sunk-black);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -66,6 +69,10 @@
   --accent: oklch(0.26 0.04 220);
   --accent-foreground: oklch(0.93 0.012 230);
   --destructive: oklch(0.64 0.2 27);
+  /* Сигнальные цвета поля: оранжевый — рекомендация, кроваво-красный — ранил, чёрный — убил */
+  --signal: oklch(0.74 0.17 55);
+  --blood: oklch(0.45 0.19 27);
+  --sunk-black: oklch(0.1 0.01 250);
   --border: oklch(0.93 0.012 230 / 12%);
   --input: oklch(0.93 0.012 230 / 16%);
   --ring: oklch(0.8 0.125 195 / 60%);
@@ -91,5 +98,29 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* Мигание рекомендованной клетки оранжевым */
+@keyframes signal-blink {
+  0%,
+  100% {
+    background-color: color-mix(in srgb, var(--signal) 85%, transparent);
+    box-shadow: 0 0 12px 2px color-mix(in srgb, var(--signal) 60%, transparent);
+  }
+  50% {
+    background-color: color-mix(in srgb, var(--signal) 25%, transparent);
+    box-shadow: 0 0 4px 0 color-mix(in srgb, var(--signal) 20%, transparent);
+  }
+}
+
+.animate-signal-blink {
+  animation: signal-blink 0.9s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-signal-blink {
+    animation: none;
+    background-color: color-mix(in srgb, var(--signal) 70%, transparent);
   }
 }

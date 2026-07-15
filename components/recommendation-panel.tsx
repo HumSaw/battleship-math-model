@@ -19,6 +19,12 @@ const METHOD_LABEL: Record<Analysis['method'], string> = {
   heuristic: 'эвристика плотности',
 }
 
+const POLICY_LABEL: Record<Analysis['policy'], string> = {
+  expectimax: 'expectimax (минимум матожидания ходов)',
+  lookahead: 'вероятность + двухходовый разбор',
+  maxprob: 'максимум вероятности',
+}
+
 export function RecommendationPanel({
   analysis,
   computing,
@@ -40,7 +46,8 @@ export function RecommendationPanel({
     )
   }
 
-  const { best, top, mode, exact, validSamples, method, effectiveSamples } = analysis
+  const { best, top, mode, exact, validSamples, method, effectiveSamples, policy, expectedShots } =
+    analysis
   const info = MODE_INFO[mode]
 
   return (
@@ -104,17 +111,31 @@ export function RecommendationPanel({
         </>
       ) : null}
 
-      <div className="mt-4 border-t border-border pt-3 font-mono text-xs text-muted-foreground">
-        Метод: {METHOD_LABEL[method]}
-        {method === 'enumerated' && (
-          <> · конфигураций: {validSamples.toLocaleString('ru-RU')}</>
-        )}
-        {method === 'montecarlo' && (
-          <>
-            {' '}
-            · сэмплов: {validSamples.toLocaleString('ru-RU')} (эфф.:{' '}
-            {effectiveSamples.toLocaleString('ru-RU')})
-          </>
+      <div className="mt-4 space-y-0.5 border-t border-border pt-3 font-mono text-xs text-muted-foreground">
+        <div>
+          Метод: {METHOD_LABEL[method]}
+          {method === 'enumerated' && (
+            <> · конфигураций: {validSamples.toLocaleString('ru-RU')}</>
+          )}
+          {method === 'montecarlo' && (
+            <>
+              {' '}
+              · сэмплов: {validSamples.toLocaleString('ru-RU')} (эфф.:{' '}
+              {effectiveSamples.toLocaleString('ru-RU')})
+            </>
+          )}
+        </div>
+        {(mode === 'hunt' || mode === 'target') && (
+          <div>
+            Стратегия: {POLICY_LABEL[policy]}
+            {policy === 'expectimax' && expectedShots !== null && (
+              <>
+                {' '}
+                · до победы ≈ {expectedShots.toLocaleString('ru-RU', { maximumFractionDigits: 1 })}{' '}
+                выстр.
+              </>
+            )}
+          </div>
         )}
       </div>
     </section>
