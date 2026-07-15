@@ -191,18 +191,17 @@ const DEADLINE_CHECK_INTERVAL = 64
 // Настройки основаны на анализе эталонных решателей (DataGenetics: медиана 42 хода
 // для международных правил; C. Liam Brown: диагональный skew в охоте).
 
-/** Максимум конфигураций, при котором включается точный expectimax-эндшпиль */
-const EXPECTIMAX_MAX_CONFIGS = 1500
-/** Предохранитель по узлам дерева expectimax */
-const EXPECTIMAX_NODE_CAP = 1500000
+/** Максимум конфигураций для exact expectimax: выше цена растёт экспоненциально */
+const EXPECTIMAX_MAX_CONFIGS = 300
+/** Предохранитель по узлам и времени дерева expectimax */
+const EXPECTIMAX_NODE_CAP = 120000
+const EXPECTIMAX_TIME_BUDGET_MS = 80
 /** Tie-break: кандидаты в пределах EPS от максимума вероятности */
-const TIEBREAK_EPS = 0.05
+const TIEBREAK_EPS = 0.035
 /** Tie-break: максимум кандидатов для двухходового lookahead */
-const TIEBREAK_TOP = 10
+const TIEBREAK_TOP = 6
 /** Максимум сохраняемых сэмплов Монте-Карло для lookahead */
-const MC_STORE_LIMIT = 6000
-/** Бонус диагональной решётки в охоте: доля от очков lookahead-кандидата */
-const SKEW_BONUS = 0.02
+const MC_STORE_LIMIT = 5000
 
 export type AnalysisMethod = 'enumerated' | 'montecarlo' | 'heuristic'
 
@@ -595,25 +594,9 @@ export function analyze(
 
   // Уровень 2: двухходовый lookahead среди почти равных кандидатов (Монте-Карло).
   // Максимизируем матожидание попаданий за два хода: q·(1+maxP_hit) + (1−q)·maxP_miss.
-  // Плюс диагональный skew (метод C. Liam Brown): в охоте среди равных кандидатов
-  // предпочитаем клетки решётки (r+c) mod s — так меньше выстрелов «перекрывают»
-  // друг друга и хвост эндшпиля сокращается.
+  // Важно: не добавляем ручные «шахматные»/диагональные бонусы. Геометрия уже
+  // содержится в апостериорных вероятностях; бонус может выбрать строго худший ход.
   if (policy === 'maxprob' && method === 'montecarlo' && best !== null && storedOcc.length > 200) {
-    // Шаг решётки: длина минимального живого корабля, но не меньше 2 —
-    // однопалубники (русские правила) решётку не задают.
-    const minAlive = remaining.length > 0 ? Math.max(2, Math.min(...remaining)) : 2
-    // Класс решётки: где уже больше всего обстрелянных клеток — туда и продолжаем,
-    // чтобы не начинать вторую, независимую сетку.
-    const classShots = new Array<number>(minAlive).fill(0)
-    for (let i = 0; i < CELLS; i++) {
-      if (board[i] !== UNKNOWN) classShots[(rowOf(i) + colOf(i)) % minAlive]++
-    }
-    let skewClass = 0
-    for (let k = 1; k < minAlive; k++) {
-      if (classShots[k] > classShots[skewClass]) skewClass = k
-    }
-    const onLattice = (c: number) => (rowOf(c) + colOf(c)) % minAlive === skewClass
-
     const cands = ranked.filter((r) => r.p >= bestP - TIEBREAK_EPS).slice(0, TIEBREAK_TOP)
     if (cands.length > 1) {
       let storedTotal = 0
@@ -655,9 +638,7 @@ export function analyze(
           }
         }
         const q = storedTotal > 0 ? wHit / storedTotal : 0
-        let score = q * (1 + maxHit) + (1 - q) * maxMiss
-        // Skew-бонус только в охоте: при добивании решётка не имеет смысла
-        if (hitCells.length === 0 && onLattice(c)) score += SKEW_BONUS
+        const score = q * (1 + maxHit) + (1 - q) * maxMiss
         if (score > bestScore) {
           bestScore = score
           bestIdx = c
@@ -881,6 +862,7 @@ function expectimaxBest(configs: number[][][], board: number[]): ExpectimaxResul
   for (let i = 0; i < CELLS; i++) if (board[i] === HIT) hits[i] = 1
 
   let nodes = 0
+  const deadline = Date.now() + EXPECTIMAX_TIME_BUDGET_MS
   const memo = new Map<string, number>()
 
   /** Сколько клеток конфигурации k ещё не поражено */
@@ -905,7 +887,10 @@ function expectimaxBest(configs: number[][][], board: number[]): ExpectimaxResul
 
   const solve = (alive: number[]): number => {
     if (alive.length === 1) return remCells(alive[0])
-    if (nodes++ > EXPECTIMAX_NODE_CAP) throw EXPECTIMAX_ABORT
+    nodes++
+    if (nodes > EXPECTIMAX_NODE_CAP || (nodes & 255) === 0 && Date.now() >= deadline) {
+      throw EXPECTIMAX_ABORT
+    }
 
     const key = stateKey(alive)
     const cached = memo.get(key)
