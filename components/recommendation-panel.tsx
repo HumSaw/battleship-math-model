@@ -3,10 +3,7 @@
 import { cn } from '@/lib/utils'
 import { cellName, type Analysis } from '@/lib/battleship-engine'
 
-const MODE_INFO: Record<
-  Analysis['mode'],
-  { label: string; className: string }
-> = {
+const MODE_INFO: Record<Analysis['mode'], { label: string; className: string }> = {
   hunt: { label: 'Режим: поиск', className: 'bg-primary/15 text-primary' },
   target: { label: 'Режим: добивание', className: 'bg-destructive/20 text-destructive' },
   won: { label: 'Все корабли потоплены', className: 'bg-primary/15 text-primary' },
@@ -16,18 +13,48 @@ const MODE_INFO: Record<
   },
 }
 
-export function RecommendationPanel({ analysis }: { analysis: Analysis }) {
-  const { best, top, mode, exact, validSamples, attempts } = analysis
+const METHOD_LABEL: Record<Analysis['method'], string> = {
+  enumerated: 'точный перебор всех расстановок',
+  montecarlo: 'взвешенное Монте-Карло',
+  heuristic: 'эвристика плотности',
+}
+
+export function RecommendationPanel({
+  analysis,
+  computing,
+}: {
+  analysis: Analysis | null
+  computing: boolean
+}) {
+  if (!analysis) {
+    return (
+      <section
+        aria-label="Рекомендация движка"
+        className="rounded-lg border border-border bg-card p-4"
+      >
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          Рекомендация
+        </h2>
+        <p className="mt-4 animate-pulse font-mono text-sm text-muted-foreground">Расчёт…</p>
+      </section>
+    )
+  }
+
+  const { best, top, mode, exact, validSamples, method, effectiveSamples } = analysis
   const info = MODE_INFO[mode]
 
   return (
     <section
       aria-label="Рекомендация движка"
-      className="rounded-lg border border-border bg-card p-4"
+      className={cn(
+        'rounded-lg border border-border bg-card p-4 transition-opacity',
+        computing && 'opacity-70',
+      )}
     >
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           Рекомендация
+          {computing && <span className="ml-2 animate-pulse text-primary">·расчёт·</span>}
         </h2>
         <span className={cn('rounded px-2 py-0.5 font-mono text-xs', info.className)}>
           {info.label}
@@ -35,7 +62,9 @@ export function RecommendationPanel({ analysis }: { analysis: Analysis }) {
       </div>
 
       {mode === 'won' ? (
-        <p className="mt-4 text-lg font-semibold text-primary">Победа! Флот противника уничтожен.</p>
+        <p className="mt-4 text-lg font-semibold text-primary">
+          Победа! Флот противника уничтожен.
+        </p>
       ) : mode === 'inconsistent' ? (
         <p className="mt-4 text-sm leading-relaxed text-destructive">
           Отметки на поле противоречат правилам. Проверьте попадания и потопленные корабли (или
@@ -76,13 +105,16 @@ export function RecommendationPanel({ analysis }: { analysis: Analysis }) {
       ) : null}
 
       <div className="mt-4 border-t border-border pt-3 font-mono text-xs text-muted-foreground">
-        {exact ? (
+        Метод: {METHOD_LABEL[method]}
+        {method === 'enumerated' && (
+          <> · конфигураций: {validSamples.toLocaleString('ru-RU')}</>
+        )}
+        {method === 'montecarlo' && (
           <>
-            Смоделировано расстановок: {validSamples.toLocaleString('ru-RU')} (попыток:{' '}
-            {attempts.toLocaleString('ru-RU')})
+            {' '}
+            · сэмплов: {validSamples.toLocaleString('ru-RU')} (эфф.:{' '}
+            {effectiveSamples.toLocaleString('ru-RU')})
           </>
-        ) : (
-          <>Монте-Карло недоступно — используется плотность размещений</>
         )}
       </div>
     </section>
