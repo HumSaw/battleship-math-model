@@ -126,6 +126,16 @@ export function Advisor() {
     setResetArmed(false)
   }
 
+  const switchRules = (next: RulesMode) => {
+    if (next === rules) return
+    // Состояния разных наборов флота математически несовместимы.
+    setRules(next)
+    setHistory([emptySnapshot()])
+    setCursor(0)
+    setPopover(null)
+    setResetArmed(false)
+  }
+
   // Горячие клавиши: Ctrl+Z — отмена, Ctrl+Shift+Z / Ctrl+Y — повтор, Esc — закрыть поповер
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -275,8 +285,8 @@ export function Advisor() {
             </h1>
           </div>
           <p className="mt-2 max-w-xl text-pretty text-sm leading-relaxed text-muted-foreground">
-            Вероятностный движок для «Морского боя»: точный перебор в эндшпиле, взвешенное
-            Монте-Карло в середине партии — всегда математически лучший выстрел.
+            Вероятностный движок для «Морского боя»: точный перебор в эндшпиле и
+            взвешенное Монте-Карло в середине партии — лучший ход по текущей модели.
           </p>
         </div>
         <dl className="panel flex divide-x divide-border px-1 py-2.5 font-mono text-sm">
@@ -414,13 +424,13 @@ export function Advisor() {
               <div className="mt-1.5 grid grid-cols-1 gap-1.5">
                 <RuleOption
                   active={rules === 'russian'}
-                  onClick={() => setRules('russian')}
+                  onClick={() => switchRules('russian')}
                   title="Русские (классика)"
                   subtitle="4·3·3·2·2·2·1·1·1·1, корабли не касаются"
                 />
                 <RuleOption
                   active={rules === 'international'}
-                  onClick={() => setRules('international')}
+                  onClick={() => switchRules('international')}
                   title="Международные"
                   subtitle="5·4·3·3·2, касание разрешено"
                 />
