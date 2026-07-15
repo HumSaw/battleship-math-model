@@ -319,6 +319,10 @@ function report(rules: RulesMode, all: number[], elapsedS: number) {
   console.log('')
   console.log('  Распределение (выстрелов до победы):')
   console.log(histogram(all))
+  // Машиночитаемая строка для объединения статистики нескольких серий
+  const counts: Record<string, number> = {}
+  for (const x of all) counts[x] = (counts[x] ?? 0) + 1
+  console.log(`RAWCOUNTS ${rules} ${JSON.stringify(counts)}`)
 }
 
 async function main() {

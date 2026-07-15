@@ -747,6 +747,9 @@ function report(rules, all, elapsedS) {
   console.log("");
   console.log("  \u0420\u0430\u0441\u043F\u0440\u0435\u0434\u0435\u043B\u0435\u043D\u0438\u0435 (\u0432\u044B\u0441\u0442\u0440\u0435\u043B\u043E\u0432 \u0434\u043E \u043F\u043E\u0431\u0435\u0434\u044B):");
   console.log(histogram(all));
+  const counts = {};
+  for (const x of all) counts[x] = (counts[x] ?? 0) + 1;
+  console.log(`RAWCOUNTS ${rules} ${JSON.stringify(counts)}`);
 }
 async function main() {
   const opts = parseArgs();
