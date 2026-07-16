@@ -1,6 +1,6 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
-import { Inter, JetBrains_Mono } from 'next/font/google'
+import { Inter, JetBrains_Mono, Noto_Sans_Arabic } from 'next/font/google'
 import './globals.css'
 
 const inter = Inter({
@@ -11,11 +11,15 @@ const jetbrainsMono = JetBrains_Mono({
   subsets: ['latin', 'cyrillic'],
   variable: '--font-jetbrains-mono',
 })
+const notoSansArabic = Noto_Sans_Arabic({
+  subsets: ['arabic'],
+  variable: '--font-noto-arabic',
+})
 
 export const metadata: Metadata = {
-  title: 'Адмирал — движок для «Морского боя»',
+  title: 'Admiral — Battleship Probability Engine',
   description:
-    'Вероятностный советник для игры «Морской бой»: Монте-Карло моделирование расстановок флота противника и математически оптимальные выстрелы.',
+    'Probabilistic Battleship advisor in 10 languages: Monte Carlo simulation of enemy fleet placements and mathematically optimal shots.',
   icons: {
     icon: [
       {
@@ -46,8 +50,10 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="ru" className="dark bg-background">
-      <body className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
+    <html lang="en" className="dark bg-background">
+      <body
+        className={`${inter.variable} ${jetbrainsMono.variable} ${notoSansArabic.variable} font-sans antialiased`}
+      >
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>

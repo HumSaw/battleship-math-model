@@ -14,9 +14,13 @@ export function useLocale() {
   const [locale, setLocaleState] = useState<Locale>('en')
 
   useEffect(() => {
-    const saved = window.localStorage.getItem(STORAGE_KEY)
-    const initial = saved ? detectLocale(saved) : detectLocale(window.navigator.language)
-    setLocaleState(initial)
+    // После гидратации: сохранённый выбор пользователя, иначе язык браузера.
+    // queueMicrotask разрывает синхронный setState в теле эффекта.
+    queueMicrotask(() => {
+      const saved = window.localStorage.getItem(STORAGE_KEY)
+      const initial = saved ? detectLocale(saved) : detectLocale(window.navigator.language)
+      setLocaleState((current) => (current === initial ? current : initial))
+    })
   }, [])
 
   useEffect(() => {
