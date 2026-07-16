@@ -3,8 +3,11 @@
 [![CI](https://github.com/HumSaw/battleship-math-model/actions/workflows/ci.yml/badge.svg)](https://github.com/HumSaw/battleship-math-model/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-4cc9c0.svg)](LICENSE)
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-111827.svg)](https://nextjs.org/)
+[![10 languages](https://img.shields.io/badge/UI-10_languages-f4a261.svg)](#interface-languages)
 
-A browser-based Battleship advisor that scores every legal target from the current board state. The engine combines constrained fleet enumeration, weighted Sequential Importance Sampling, two-ply lookahead, and bounded expectimax for small endgames.
+[![Читать на русском](https://img.shields.io/badge/%D0%A7%D0%B8%D1%82%D0%B0%D1%82%D1%8C_%D0%BD%D0%B0_%D1%80%D1%83%D1%81%D1%81%D0%BA%D0%BE%D0%BC-README.ru.md-4cc9c0?style=for-the-badge)](README.ru.md)
+
+A browser-based Battleship advisor that scores every legal target from the current board state. The engine combines constrained fleet enumeration, weighted Sequential Importance Sampling, two-ply lookahead, and bounded expectimax for small endgames. The interface ships in 10 languages with automatic browser-language detection.
 
 > This is a probabilistic decision-support tool, not a guarantee of winning. Its recommendation is optimal only with respect to the model, observations, rule set, and available compute budget.
 
@@ -18,8 +21,15 @@ A browser-based Battleship advisor that scores every legal target from the curre
 | --- | --- |
 | ![Desktop advisor interface](docs/assets/admiral-desktop.png) | ![Mobile advisor interface](docs/assets/admiral-mobile.png) |
 
+## Interface languages
+
+The UI is fully localized into 10 languages: **English, 中文 (Chinese), Español (Spanish), हिन्दी (Hindi), العربية (Arabic, RTL), Português (Portuguese), বাংলা (Bengali), Русский (Russian), 日本語 (Japanese), Français (French)**.
+
+The language is detected from the browser on first visit, can be switched from the header selector, and the manual choice is persisted locally. Arabic renders with a right-to-left mirrored layout.
+
 ## Features
 
+- Localized interface in 10 languages with browser-language detection and RTL support
 - Russian classic fleet rules and international Hasbro-style rules
 - 10×10 probability heatmap with Latin row coordinates
 - Exact legal-placement enumeration when the state space is small
@@ -88,7 +98,9 @@ Simulation results are sensitive to sample count, per-move budget, CPU speed, fl
 app/                         Next.js App Router entry points and theme
 components/                  Board, advisor, recommendation, fleet UI
 hooks/use-analysis.ts        Cancellable Web Worker bridge
+hooks/use-locale.ts          Language detection and persistence
 lib/battleship-engine.ts     Core inference and policy engine
+lib/i18n.ts                  Dictionaries for the 10 UI languages
 lib/engine.worker.ts         High-budget browser worker
 scripts/simulate.ts          Seeded multi-worker benchmark
 lib/*.test.ts                Vitest engine tests

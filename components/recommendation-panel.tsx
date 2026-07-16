@@ -4,82 +4,81 @@ import { cn } from '@/lib/utils'
 import { cellName, type Analysis } from '@/lib/battleship-engine'
 import type { Locale, Messages } from '@/lib/i18n'
 
-const MODE_INFO: Record<Analysis['mode'], { label: string; className: string }> = {
-  hunt: { label: 'Поиск', className: 'border-primary/40 bg-primary/10 text-primary' },
-  target: {
-    label: 'Добивание',
-    className: 'border-destructive/40 bg-destructive/15 text-destructive',
-  },
-  won: { label: 'Победа', className: 'border-primary/40 bg-primary/10 text-primary' },
-  inconsistent: {
-    label: 'Противоречие',
-    className: 'border-destructive/40 bg-destructive/15 text-destructive',
-  },
-}
-
-const METHOD_LABEL: Record<Analysis['method'], string> = {
-  enumerated: 'точный перебор всех расстановок',
-  montecarlo: 'взвешенное Монте-Карло',
-  heuristic: 'эвристика плотности',
-}
-
-const POLICY_LABEL: Record<Analysis['policy'], string> = {
-  expectimax: 'expectimax (минимум матожидания ходов)',
-  lookahead: 'вероятность + двухходовый разбор',
-  maxprob: 'максимум вероятности',
+const MODE_CLASS: Record<Analysis['mode'], string> = {
+  hunt: 'border-primary/40 bg-primary/10 text-primary',
+  target: 'border-destructive/40 bg-destructive/15 text-destructive',
+  won: 'border-primary/40 bg-primary/10 text-primary',
+  inconsistent: 'border-destructive/40 bg-destructive/15 text-destructive',
 }
 
 export function RecommendationPanel({
   analysis,
   computing,
+  messages: t,
+  locale,
 }: {
   analysis: Analysis | null
   computing: boolean
+  messages: Messages
+  locale: Locale
 }) {
   if (!analysis) {
     return (
-      <section aria-label="Рекомендация движка" className="panel p-4 sm:p-5">
+      <section aria-label={t.recommendation} className="panel p-4 sm:p-5">
         <h2 className="panel-title font-mono text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-          Рекомендация
+          {t.recommendation}
         </h2>
-        <p className="mt-4 animate-pulse font-mono text-sm text-muted-foreground">Расчёт…</p>
+        <p className="mt-4 animate-pulse font-mono text-sm text-muted-foreground">
+          {t.calculating}
+        </p>
       </section>
     )
   }
 
   const { best, top, mode, exact, validSamples, method, effectiveSamples, policy, expectedShots } =
     analysis
-  const info = MODE_INFO[mode]
+
+  const modeLabel: Record<Analysis['mode'], string> = {
+    hunt: t.hunt,
+    target: t.target,
+    won: t.victory,
+    inconsistent: t.conflict,
+  }
+  const methodLabel: Record<Analysis['method'], string> = {
+    enumerated: t.exactEnum,
+    montecarlo: t.weightedMc,
+    heuristic: t.density,
+  }
+  const policyLabel: Record<Analysis['policy'], string> = {
+    expectimax: t.expectimax,
+    lookahead: t.lookahead,
+    maxprob: t.maxprob,
+  }
 
   return (
     <section
-      aria-label="Рекомендация движка"
+      aria-label={t.recommendation}
       className={cn('panel p-4 transition-opacity sm:p-5', computing && 'opacity-70')}
     >
       <div className="flex items-center justify-between gap-2">
         <h2 className="panel-title font-mono text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-          Рекомендация
-          {computing && <span className="ml-1 animate-pulse text-primary">·</span>}
+          {t.recommendation}
+          {computing && <span className="ms-1 animate-pulse text-primary">·</span>}
         </h2>
         <span
           className={cn(
             'rounded-full border px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-widest',
-            info.className,
+            MODE_CLASS[mode],
           )}
         >
-          {info.label}
+          {modeLabel[mode]}
         </span>
       </div>
 
       {mode === 'won' ? (
-        <p className="mt-4 text-lg font-semibold text-primary">
-          Победа! Флот противника уничтожен.
-        </p>
+        <p className="mt-4 text-lg font-semibold text-primary">{t.wonText}</p>
       ) : mode === 'inconsistent' ? (
-        <p className="mt-4 text-sm leading-relaxed text-destructive">
-          Отметки на поле противоречат правилам. Проверьте попадания и потопленные корабли (или
-          переключите набор правил в настройках).
-        </p>
+        <p className="mt-4 text-sm leading-relaxed text-destructive">{t.conflictText}</p>
       ) : best !== null ? (
         <>
           <div className="relative mt-4 overflow-hidden rounded-lg border border-signal/30 bg-signal/[0.07] p-4">
@@ -90,18 +89,18 @@ export function RecommendationPanel({
             <div className="flex items-end justify-between gap-4">
               <div>
                 <div className="font-mono text-[10px] uppercase tracking-widest text-signal">
-                  Лучший выстрел
+                  {t.bestShot}
                 </div>
                 <div className="animate-signal-glow font-mono text-5xl font-bold leading-tight text-signal">
                   {cellName(best)}
                 </div>
               </div>
-              <div className="pb-1 text-right">
+              <div className="pb-1 text-end">
                 <div className="font-mono text-2xl font-bold text-foreground">
                   {Math.round(analysis.probs[best] * 100)}%
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {exact ? 'вероятность попадания' : 'относительный вес'}
+                  {exact ? t.hitProbability : t.relativeWeight}
                 </div>
               </div>
             </div>
@@ -110,7 +109,7 @@ export function RecommendationPanel({
           {top.length > 1 && (
             <div className="mt-4">
               <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                Альтернативы
+                {t.alternatives}
               </div>
               <ul className="mt-2 flex flex-wrap gap-1.5">
                 {top.slice(1).map(({ idx, p }) => (
@@ -128,26 +127,31 @@ export function RecommendationPanel({
         </>
       ) : null}
 
-      <div className="mt-4 space-y-1 border-t border-border pt-3 font-mono text-xs leading-relaxed text-muted-foreground">
+      <div className="mt-4 flex flex-col gap-1 border-t border-border pt-3 font-mono text-xs leading-relaxed text-muted-foreground">
         <div>
-          Метод: {METHOD_LABEL[method]}
-          {method === 'enumerated' && <> · конфигураций: {validSamples.toLocaleString('ru-RU')}</>}
+          {t.method}: {methodLabel[method]}
+          {method === 'enumerated' && (
+            <>
+              {' '}
+              · {t.configurations}: {validSamples.toLocaleString(locale)}
+            </>
+          )}
           {method === 'montecarlo' && (
             <>
               {' '}
-              · сэмплов: {validSamples.toLocaleString('ru-RU')} (эфф.:{' '}
-              {effectiveSamples.toLocaleString('ru-RU')})
+              · {t.samples}: {validSamples.toLocaleString(locale)} ({t.effective}:{' '}
+              {effectiveSamples.toLocaleString(locale)})
             </>
           )}
         </div>
         {(mode === 'hunt' || mode === 'target') && (
           <div>
-            Стратегия: {POLICY_LABEL[policy]}
+            {t.strategy}: {policyLabel[policy]}
             {policy === 'expectimax' && expectedShots !== null && (
               <>
                 {' '}
-                · до победы ≈ {expectedShots.toLocaleString('ru-RU', { maximumFractionDigits: 1 })}{' '}
-                выстр.
+                · ≈ {expectedShots.toLocaleString(locale, { maximumFractionDigits: 1 })}{' '}
+                {t.untilVictory}
               </>
             )}
           </div>
