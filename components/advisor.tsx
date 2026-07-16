@@ -17,6 +17,8 @@ import {
   type RulesMode,
 } from '@/lib/battleship-engine'
 import { useAnalysis } from '@/hooks/use-analysis'
+import { useLocale } from '@/hooks/use-locale'
+import { localeNames, locales, type Locale } from '@/lib/i18n'
 import { Board } from '@/components/board'
 import { RecommendationPanel } from '@/components/recommendation-panel'
 import { FleetStatus } from '@/components/fleet-status'
@@ -88,6 +90,7 @@ function segmentLabel(cells: number[]): string {
 }
 
 export function Advisor() {
+  const { locale, setLocale, messages: t, direction } = useLocale()
   const [history, setHistory] = useState<Snapshot[]>([emptySnapshot()])
   const [cursor, setCursor] = useState(0)
   const [rules, setRules] = useState<RulesMode>('russian')
@@ -226,7 +229,7 @@ export function Advisor() {
       }
       if (!isStraightLine(cells)) {
         setPopover((p) =>
-          p ? { ...p, data: { stage: 'length', error: 'Ранения не образуют прямую линию' } } : p,
+          p ? { ...p, data: { stage: 'length', error: t.invalidLine } } : p,
         )
         return
       }
@@ -246,7 +249,7 @@ export function Advisor() {
               ...p,
               data: {
                 stage: 'length',
-                error: `Нет отрезка длины ${L} из ранений через эту клетку`,
+                error: `${t.noSegment} (${L})`,
               },
             }
           : p,
@@ -270,10 +273,10 @@ export function Advisor() {
   )
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 py-6 lg:gap-6 lg:py-10">
+    <div dir={direction} className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 py-6 lg:gap-6 lg:py-10">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
             <span
               aria-hidden
               className="flex size-8 items-center justify-center rounded-md border border-primary/40 bg-primary/10 font-mono text-sm font-bold text-primary shadow-[0_0_14px_-2px] shadow-primary/40"
@@ -281,30 +284,42 @@ export function Advisor() {
               А
             </span>
             <h1 className="text-balance font-mono text-2xl font-bold tracking-tight text-foreground lg:text-3xl">
-              АДМИРАЛ<span className="text-primary">_</span>
+              ADMIRAL<span className="text-primary">_</span>
             </h1>
+            <label className="relative ms-1">
+              <span className="sr-only">{t.language}</span>
+              <select
+                value={locale}
+                onChange={(event) => setLocale(event.target.value as Locale)}
+                className="h-8 rounded-md border border-border bg-secondary px-2 font-mono text-xs text-foreground outline-none transition-colors hover:border-primary/60 focus:border-primary"
+                aria-label={t.language}
+              >
+                {locales.map((code) => (
+                  <option key={code} value={code}>{localeNames[code]}</option>
+                ))}
+              </select>
+            </label>
           </div>
           <p className="mt-2 max-w-xl text-pretty text-sm leading-relaxed text-muted-foreground">
-            Вероятностный движок для «Морского боя»: точный перебор в эндшпиле и
-            взвешенное Монте-Карло в середине партии — лучший ход по текущей модели.
+            {t.tagline}
           </p>
         </div>
         <dl className="panel flex divide-x divide-border px-1 py-2.5 font-mono text-sm">
           <div className="px-4 text-center">
             <dt className="text-[10px] uppercase tracking-widest text-muted-foreground">
-              Выстрелов
+              {t.shots}
             </dt>
             <dd className="mt-0.5 text-xl font-semibold tabular-nums text-foreground">{shots}</dd>
           </div>
           <div className="px-4 text-center">
             <dt className="text-[10px] uppercase tracking-widest text-muted-foreground">
-              Попаданий
+              {t.hits}
             </dt>
             <dd className="mt-0.5 text-xl font-semibold tabular-nums text-primary">{hits}</dd>
           </div>
           <div className="px-4 text-center">
             <dt className="text-[10px] uppercase tracking-widest text-muted-foreground">
-              Точность
+              {t.accuracy}
             </dt>
             <dd className="mt-0.5 text-xl font-semibold tabular-nums text-foreground">
               {shots > 0 ? Math.round((hits / shots) * 100) : 0}
@@ -323,9 +338,9 @@ export function Advisor() {
               className="font-mono"
               onClick={undo}
               disabled={!canUndo}
-              title="Отменить (Ctrl+Z)"
+              title={`${t.undo} (Ctrl+Z)`}
             >
-              Отменить
+              {t.undo}
             </Button>
             <Button
               size="sm"
@@ -333,12 +348,12 @@ export function Advisor() {
               className="font-mono"
               onClick={redo}
               disabled={!canRedo}
-              title="Повторить (Ctrl+Shift+Z)"
+              title={`${t.redo} (Ctrl+Shift+Z)`}
             >
-              Повторить
+              {t.redo}
             </Button>
             <span className="ml-auto font-mono text-xs tabular-nums text-muted-foreground">
-              Ход {cursor} · клик по клетке — выбор результата
+              {t.turn} {cursor} · {t.cellHint}
             </span>
           </div>
 
@@ -371,80 +386,80 @@ export function Advisor() {
               activeCell={popover?.cell ?? null}
               onCellClick={onCellClick}
               onCellErase={eraseCell}
+              messages={t}
             />
             <p className="mt-3.5 text-xs leading-relaxed text-muted-foreground">
-              Клик по клетке — отметить результат выстрела, правый клик — стереть. Пульсирующая
-              рамка — лучший выстрел. Ctrl+Z — отмена хода.
+              {t.boardHint}
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
             <span className="flex items-center gap-1.5">
-              <span className="inline-block size-3 rounded-[2px] bg-signal" /> лучший выстрел
+              <span className="inline-block size-3 rounded-[2px] bg-signal" /> {t.bestShot}
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="inline-block size-3 rounded-[2px] bg-primary/70" /> вероятность
+              <span className="inline-block size-3 rounded-[2px] bg-primary/70" /> {t.probability}
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="inline-block size-1.5 rounded-full bg-muted-foreground" /> промах
+              <span className="inline-block size-1.5 rounded-full bg-muted-foreground" /> {t.miss}
             </span>
             <span className="flex items-center gap-1.5">
               <span className="flex size-3.5 items-center justify-center rounded-[2px] bg-blood text-[9px] font-bold text-foreground">
                 ×
               </span>
-              ранен
+              {t.hit}
             </span>
             <span className="flex items-center gap-1.5">
               <span className="flex size-3.5 items-center justify-center rounded-[2px] bg-sunk-black text-[9px] font-bold text-destructive">
                 ×
               </span>
-              потоплен
+              {t.sunk}
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="inline-block size-1 rounded-full bg-muted-foreground/40" /> точно
-              пусто
+              <span className="inline-block size-1 rounded-full bg-muted-foreground/40" /> {t.empty}
             </span>
           </div>
         </div>
 
         <div className="flex flex-col gap-4">
-          <RecommendationPanel analysis={analysis} computing={computing} />
+          <RecommendationPanel analysis={analysis} computing={computing} messages={t} locale={locale} />
           <FleetStatus
             remaining={analysis?.remaining ?? []}
             destroyed={analysis?.destroyed ?? []}
+            messages={t}
           />
 
-          <section aria-label="Настройки" className="panel p-4 sm:p-5">
+          <section aria-label={t.settings} className="panel p-4 sm:p-5">
             <h2 className="panel-title font-mono text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-              Настройки
+              {t.settings}
             </h2>
 
             <div className="mt-3">
-              <div className="text-xs text-muted-foreground">Правила</div>
+              <div className="text-xs text-muted-foreground">{t.rules}</div>
               <div className="mt-1.5 grid grid-cols-1 gap-1.5">
                 <RuleOption
                   active={rules === 'russian'}
                   onClick={() => switchRules('russian')}
-                  title="Русские (классика)"
-                  subtitle="4·3·3·2·2·2·1·1·1·1, корабли не касаются"
+                  title={t.russian}
+                  subtitle={t.russianSub}
                 />
                 <RuleOption
                   active={rules === 'international'}
                   onClick={() => switchRules('international')}
-                  title="Международные"
-                  subtitle="5·4·3·3·2, касание разрешено"
+                  title={t.international}
+                  subtitle={t.internationalSub}
                 />
               </div>
             </div>
 
             <div className="mt-4 flex flex-col gap-2">
               <ToggleRow
-                label="Тепловая карта"
+                label={t.heatmap}
                 checked={showHeat}
                 onChange={() => setShowHeat((v) => !v)}
               />
               <ToggleRow
-                label="Проценты в клетках"
+                label={t.percentages}
                 checked={showPercent}
                 onChange={() => setShowPercent((v) => !v)}
               />
@@ -453,14 +468,14 @@ export function Advisor() {
             {resetArmed ? (
               <div className="mt-4 flex gap-2">
                 <Button variant="destructive" className="flex-1 font-mono" onClick={reset}>
-                  Да, сбросить
+                  {t.resetYes}
                 </Button>
                 <Button
                   variant="outline"
                   className="flex-1 font-mono"
                   onClick={() => setResetArmed(false)}
                 >
-                  Отмена
+                  {t.cancel}
                 </Button>
               </div>
             ) : (
@@ -469,24 +484,20 @@ export function Advisor() {
                 className="mt-4 w-full font-mono"
                 onClick={() => setResetArmed(true)}
               >
-                Новая игра
+                {t.newGame}
               </Button>
             )}
           </section>
 
           <section
-            aria-label="Как пользоваться"
+            aria-label={t.howTo}
             className="panel p-4 text-sm leading-relaxed text-muted-foreground sm:p-5"
           >
             <h2 className="panel-title font-mono text-xs font-semibold uppercase tracking-widest">
-              Как пользоваться
+              {t.howTo}
             </h2>
-            <ol className="mt-3 space-y-2">
-              {[
-                'Стреляйте в клетку с мигающей оранжевой рамкой.',
-                'Кликните по клетке и выберите ответ: «Мимо», «Ранил» или «Убил».',
-                'Движок мгновенно пересчитает вероятности — повторяйте до победы.',
-              ].map((step, n) => (
+            <ol className="mt-3 flex flex-col gap-2">
+              {[t.step1, t.step2, t.step3].map((step, n) => (
                 <li key={n} className="flex gap-2.5">
                   <span className="mt-px flex size-4.5 shrink-0 items-center justify-center rounded-full border border-primary/40 font-mono text-[10px] font-bold text-primary">
                     {n + 1}
@@ -503,7 +514,7 @@ export function Advisor() {
         <div
           ref={popoverRef}
           role="dialog"
-          aria-label={`Результат выстрела в ${cellName(popover.cell)}`}
+          aria-label={`${t.resultFor} ${cellName(popover.cell)}`}
           className="animate-popover-in fixed z-50 min-w-44 rounded-xl border border-border bg-popover/95 p-2 shadow-[0_16px_48px_-12px_oklch(0_0_0/0.6)] backdrop-blur-md"
           style={{
             left: Math.max(
@@ -532,17 +543,17 @@ export function Advisor() {
           {popover.data.stage === 'result' && (
             <div className="flex flex-col gap-1">
               <PopoverButton onClick={() => setCellState(popover.cell, MISS)} dot="miss">
-                Мимо
+                {t.miss}
               </PopoverButton>
               <PopoverButton onClick={() => setCellState(popover.cell, HIT)} dot="hit">
-                Ранил
+                {t.hit}
               </PopoverButton>
               <PopoverButton onClick={() => markSunk(popover.cell)} dot="sunk">
-                Убил
+                {t.sunk}
               </PopoverButton>
               {board[popover.cell] !== UNKNOWN && (
                 <PopoverButton onClick={() => eraseCell(popover.cell)} muted>
-                  Стереть
+                  {t.erase}
                 </PopoverButton>
               )}
             </div>
@@ -550,7 +561,7 @@ export function Advisor() {
 
           {popover.data.stage === 'length' && (
             <div className="flex flex-col gap-1">
-              <div className="px-1 text-xs text-muted-foreground">Длина потопленного корабля:</div>
+              <div className="px-1 text-xs text-muted-foreground">{t.shipLength}</div>
               <div className="flex gap-1">
                 {remainingLengths.map((L) => (
                   <PopoverButton key={L} onClick={() => pickSunkLength(popover.cell, L)}>
@@ -566,7 +577,7 @@ export function Advisor() {
 
           {popover.data.stage === 'segment' && (
             <div className="flex flex-col gap-1">
-              <div className="px-1 text-xs text-muted-foreground">Где стоял корабль?</div>
+              <div className="px-1 text-xs text-muted-foreground">{t.shipWhere}</div>
               {popover.data.candidates.map((cells) => (
                 <PopoverButton key={cells.join('-')} onClick={() => applySunkShip(cells)}>
                   {segmentLabel(cells)}
