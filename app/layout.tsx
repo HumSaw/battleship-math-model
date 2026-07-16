@@ -3,8 +3,14 @@ import type { Metadata, Viewport } from 'next'
 import { Inter, JetBrains_Mono } from 'next/font/google'
 import './globals.css'
 
-const _inter = Inter({ subsets: ['latin', 'cyrillic'] })
-const _jetbrainsMono = JetBrains_Mono({ subsets: ['latin', 'cyrillic'] })
+const inter = Inter({
+  subsets: ['latin', 'cyrillic'],
+  variable: '--font-inter',
+})
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ['latin', 'cyrillic'],
+  variable: '--font-jetbrains-mono',
+})
 
 export const metadata: Metadata = {
   title: 'Адмирал — движок для «Морского боя»',
@@ -42,7 +48,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ru" className="dark bg-background">
-      <body className="font-sans antialiased">
+      <body className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>

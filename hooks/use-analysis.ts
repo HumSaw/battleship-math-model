@@ -35,7 +35,9 @@ export function useAnalysis(
     // analyze() синхронен внутри воркера и не умеет отменяться. Уничтожаем старый
     // воркер, иначе быстрые клики образуют очередь устаревших расчётов до 900 мс каждый.
     workerRef.current?.terminate()
-    setComputing(true)
+    queueMicrotask(() => {
+      if (requestId.current === id) setComputing(true)
+    })
 
     let worker: Worker
     let answered = false
@@ -57,8 +59,11 @@ export function useAnalysis(
       }
       worker.postMessage({ id, board, rules, ships })
     } catch {
-      setAnalysis(analyze(board, rules, ships, SYNC_FALLBACK_OPTIONS))
-      setComputing(false)
+      queueMicrotask(() => {
+        if (requestId.current !== id) return
+        setAnalysis(analyze(board, rules, ships, SYNC_FALLBACK_OPTIONS))
+        setComputing(false)
+      })
       return
     }
 
