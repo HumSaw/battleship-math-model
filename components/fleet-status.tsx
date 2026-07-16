@@ -1,6 +1,7 @@
 'use client'
 
 import { cn } from '@/lib/utils'
+import type { Messages } from '@/lib/i18n'
 
 function ShipRow({ length, destroyed }: { length: number; destroyed?: boolean }) {
   return (
@@ -25,34 +26,36 @@ function ShipRow({ length, destroyed }: { length: number; destroyed?: boolean })
 export function FleetStatus({
   remaining,
   destroyed,
+  messages,
 }: {
   remaining: number[]
   destroyed: number[]
+  messages: Messages
 }) {
   const total = remaining.length + destroyed.length
 
   return (
-    <section aria-label="Флот противника" className="panel p-4 sm:p-5">
+    <section aria-label={messages.enemyFleet} className="panel p-4 sm:p-5">
       <div className="flex items-center justify-between gap-2">
         <h2 className="panel-title font-mono text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-          Флот противника
+          {messages.enemyFleet}
         </h2>
         <span className="font-mono text-xs tabular-nums text-muted-foreground">
           {remaining.length}/{total > 0 ? total : '—'}
         </span>
       </div>
       <p className="sr-only">
-        В строю кораблей: {remaining.length}, потоплено: {destroyed.length}
+        {messages.afloat}: {remaining.length}, {messages.fleetSunk}: {destroyed.length}
       </p>
       <div className="mt-3.5 flex flex-col gap-2">
         {remaining.length === 0 && destroyed.length === 0 && (
-          <p className="text-sm text-muted-foreground">Флот не определён</p>
+          <p className="text-sm text-muted-foreground">{messages.fleetUnknown}</p>
         )}
         {remaining.map((len, i) => (
           <div key={`r-${i}`} className="flex items-center justify-between gap-3">
             <ShipRow length={len} />
             <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              в строю
+              {messages.afloat}
             </span>
           </div>
         ))}
@@ -60,7 +63,7 @@ export function FleetStatus({
           <div key={`d-${i}`} className="flex items-center justify-between gap-3 opacity-60">
             <ShipRow length={len} destroyed />
             <span className="font-mono text-[10px] uppercase tracking-widest text-destructive/80">
-              потоплен
+              {messages.fleetSunk}
             </span>
           </div>
         ))}

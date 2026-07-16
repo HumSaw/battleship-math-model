@@ -2,6 +2,7 @@
 
 import { cn } from '@/lib/utils'
 import { cellName, type Analysis } from '@/lib/battleship-engine'
+import type { Locale, Messages } from '@/lib/i18n'
 
 const MODE_INFO: Record<Analysis['mode'], { label: string; className: string }> = {
   hunt: { label: 'Поиск', className: 'border-primary/40 bg-primary/10 text-primary' },

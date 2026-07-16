@@ -1,6 +1,7 @@
 'use client'
 
 import { cn } from '@/lib/utils'
+import type { Messages } from '@/lib/i18n'
 import {
   CELLS,
   ROW_LETTERS,
@@ -23,13 +24,7 @@ interface BoardProps {
   activeCell: number | null
   onCellClick: (i: number, e: React.MouseEvent) => void
   onCellErase: (i: number) => void
-}
-
-const STATE_LABEL: Record<number, string> = {
-  [UNKNOWN]: 'не обстреляно',
-  [MISS]: 'промах',
-  [HIT]: 'попадание',
-  [SUNK]: 'потоплен',
+  messages: Messages
 }
 
 export function Board({
@@ -43,7 +38,14 @@ export function Board({
   activeCell,
   onCellClick,
   onCellErase,
+  messages,
 }: BoardProps) {
+  const stateLabel: Record<number, string> = {
+    [UNKNOWN]: messages.unshot,
+    [MISS]: messages.miss,
+    [HIT]: messages.hit,
+    [SUNK]: messages.sunk,
+  }
   let maxP = 0
   for (let i = 0; i < CELLS; i++) if (probs[i] > maxP) maxP = probs[i]
 
@@ -52,7 +54,7 @@ export function Board({
       className="grid w-full max-w-xl gap-[3px] font-mono text-sm"
       style={{ gridTemplateColumns: `1.5rem repeat(${SIZE}, minmax(0, 1fr))` }}
       role="grid"
-      aria-label="Поле противника"
+      aria-label={messages.opponentBoard}
     >
       <div />
       {Array.from({ length: SIZE }, (_, c) => (
@@ -79,6 +81,8 @@ export function Board({
           activeCell={activeCell}
           onCellClick={onCellClick}
           onCellErase={onCellErase}
+          stateLabel={stateLabel}
+          probabilityLabel={messages.probability}
         />
       ))}
     </div>
@@ -98,6 +102,8 @@ function RowCells({
   activeCell,
   onCellClick,
   onCellErase,
+  stateLabel,
+  probabilityLabel,
 }: {
   row: number
   board: number[]
@@ -111,6 +117,8 @@ function RowCells({
   activeCell: number | null
   onCellClick: (i: number, e: React.MouseEvent) => void
   onCellErase: (i: number) => void
+  stateLabel: Record<number, string>
+  probabilityLabel: string
 }) {
   return (
     <>
@@ -129,8 +137,8 @@ function RowCells({
             key={i}
             type="button"
             role="gridcell"
-            aria-label={`${cellName(i)}: ${STATE_LABEL[state]}${
-              state === UNKNOWN && exact ? `, вероятность ${Math.round(p * 100)}%` : ''
+            aria-label={`${cellName(i)}: ${stateLabel[state]}${
+              state === UNKNOWN && exact ? `, ${probabilityLabel} ${Math.round(p * 100)}%` : ''
             }`}
             onClick={(e) => onCellClick(i, e)}
             onContextMenu={(e) => {
