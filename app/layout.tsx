@@ -20,7 +20,6 @@ export const metadata: Metadata = {
   title: 'Admiral — Battleship Probability Engine',
   description:
     'Probabilistic Battleship advisor in 10 languages: Monte Carlo simulation of enemy fleet placements and mathematically optimal shots.',
-  generator: 'v0.app',
   icons: {
     icon: [
       {
